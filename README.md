@@ -1,4 +1,4 @@
-# Whamming
+# Whamming (What am I working on?)
 
 **See what all your Claude Code sessions are working on, at a glance.**
 
