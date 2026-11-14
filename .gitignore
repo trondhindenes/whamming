@@ -1,0 +1,13 @@
+# dependencies and build output
+node_modules/
+dist/
+release/
+
+# local / machine-specific
+.DS_Store
+*.log
+.env
+.env.*
+.claude/settings.local.json
+*.whamming-backup
+*.whamming-tmp

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7d86f0"/>
+      <stop offset="1" stop-color="#3a3d9c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffb26b" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffb26b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9dcf5"/>
+    </linearGradient>
+    <linearGradient id="malletHead" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff7a6b"/>
+      <stop offset="1" stop-color="#d9433a"/>
+    </linearGradient>
+    <!-- Everything above the hole's centre line, plus the part of the hole's lower half: the agent "sits in" the hole. -->
+    <clipPath id="inHole">
+      <path d="M0 0 H1024 V740 H748 A236 58 0 0 1 276 740 H0 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- macOS squircle tile -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="4"/>
+
+  <!-- hole -->
+  <ellipse cx="512" cy="752" rx="258" ry="74" fill="#1a1b45"/>
+  <ellipse cx="512" cy="740" rx="236" ry="58" fill="#12133a"/>
+
+  <!-- the agent, popping out -->
+  <g clip-path="url(#inHole)">
+    <path d="M338 830 V572 C338 452 414 382 512 382 C610 382 686 452 686 572 V830 Z" fill="url(#body)"/>
+    <!-- visor -->
+    <rect x="384" y="484" width="256" height="150" rx="64" fill="#1f2152"/>
+    <!-- eyes, glancing up at the mallet -->
+    <ellipse cx="462" cy="545" rx="26" ry="32" fill="#8fe3ff"/>
+    <ellipse cx="562" cy="545" rx="26" ry="32" fill="#8fe3ff"/>
+    <circle cx="471" cy="533" r="10" fill="#1f2152"/>
+    <circle cx="571" cy="533" r="10" fill="#1f2152"/>
+    <!-- worried little mouth -->
+    <path d="M488 604 Q512 590 536 604" fill="none" stroke="#8fe3ff" stroke-width="9" stroke-linecap="round"/>
+    <!-- cheek panel lines -->
+    <path d="M360 680 H664" stroke="#c3c7ec" stroke-width="6"/>
+  </g>
+  <!-- hole front rim, over the body -->
+  <path d="M276 740 A236 58 0 0 0 748 740" fill="none" stroke="#2b2d6b" stroke-width="12"/>
+  <path d="M254 752 A258 74 0 0 0 770 752" fill="none" stroke="#5a5fc4" stroke-opacity="0.5" stroke-width="6"/>
+
+  <!-- antenna with the "waiting" light -->
+  <path d="M512 384 V310" stroke="#d9dcf5" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="512" cy="292" r="70" fill="url(#glow)"/>
+  <circle cx="512" cy="292" r="28" fill="#f2994a"/>
+  <circle cx="503" cy="283" r="9" fill="#ffd2a6"/>
+
+  <!-- sweat drop -->
+  <path d="M352 452 C352 452 330 482 330 498 A22 22 0 0 0 374 498 C374 482 352 452 352 452 Z" fill="#8fe3ff"/>
+
+  <!-- mallet, mid-swing -->
+  <g transform="translate(735 330) rotate(-38)">
+    <rect x="-17" y="-10" width="34" height="250" rx="17" fill="#c58b52"/>
+    <rect x="-17" y="170" width="34" height="70" rx="17" fill="#a8723f"/>
+    <rect x="-118" y="-96" width="236" height="118" rx="40" fill="url(#malletHead)"/>
+    <rect x="-118" y="-96" width="236" height="118" rx="40" fill="none" stroke="#ffffff" stroke-opacity="0.25" stroke-width="5"/>
+    <rect x="-70" y="-96" width="22" height="118" fill="#ffffff" fill-opacity="0.22"/>
+    <rect x="48" y="-96" width="22" height="118" fill="#ffffff" fill-opacity="0.22"/>
+  </g>
+
+  <!-- swoosh lines -->
+  <g fill="none" stroke="#ffffff" stroke-linecap="round" stroke-opacity="0.75" stroke-width="12">
+    <path d="M800 168 Q858 190 878 246"/>
+    <path d="M818 136 Q886 160 906 226" stroke-opacity="0.45"/>
+  </g>
+</svg>

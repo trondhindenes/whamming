@@ -1,0 +1,63 @@
+/* Menu bar popover. Sits on macOS "popover" vibrancy, so the page itself is mostly transparent. */
+html, body.popover { background: transparent; height: auto; }
+body.popover { overflow: hidden; font-size: 12.5px; }
+
+/* Fill the window; only the middle scrolls, so header and footer stay visible at any zoom level. */
+#root {
+  display: flex; flex-direction: column;
+  height: 100vh;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+}
+
+.pop-head { padding: 12px 14px 10px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+.pop-head img { width: 26px; height: 26px; }
+.pop-head .t { flex: 1; min-width: 0; }
+.pop-head .t b { display: block; font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.pop-head .sum { color: var(--text-muted); font-size: 11.5px; }
+.pop-head .sum .hot { color: var(--st-waiting); font-weight: 600; }
+.pop-head .sum .err { color: var(--st-error); font-weight: 600; }
+
+.pop-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; padding: 4px 0 6px; }
+.pop-sec { padding: 8px 14px 3px; font-size: 11px; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; display: flex; gap: 6px; }
+.pop-sec .n { font-weight: 500; }
+
+.item { display: block; margin: 1px 6px; padding: 7px 8px; border-radius: 7px; cursor: default; }
+.item:hover, .item.kbd { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.item-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.item-top .ttl { flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.item-top .time { color: var(--text-faint); font-size: 11.5px; font-variant-numeric: tabular-nums; flex: none; }
+.item-sub { margin: 2px 0 0 22px; color: var(--text-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-sub .mono { font-family: var(--mono); font-size: 11px; }
+.item .q {
+  margin: 6px 0 0 22px; padding: 6px 8px; border-radius: 6px;
+  background: color-mix(in srgb, var(--st-waiting) 12%, transparent);
+  color: var(--text); font-size: 12px; line-height: 1.4;
+}
+/* Clamp the text itself, not the padded box, so no half line peeks out under the padding. */
+.item .q span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.item.error .q { background: color-mix(in srgb, var(--st-error) 12%, transparent); }
+.item .chips { margin: 6px 0 0 22px; display: flex; gap: 5px; flex-wrap: wrap; }
+.item .chip { height: 20px; font-size: 11px; padding: 0 7px; }
+
+.item.compact { padding: 5px 8px; }
+.item.compact .item-top .ttl { font-weight: 400; }
+.item.idle .item-top .ttl { color: var(--text-2); }
+.more { margin: 2px 14px 4px 36px; color: var(--text-faint); font-size: 11.5px; }
+
+.pop-empty { padding: 26px 20px 30px; text-align: center; color: var(--text-muted); }
+.pop-empty b { display: block; color: var(--text); font-size: 13px; margin-bottom: 3px; }
+
+.pop-foot {
+  display: flex; align-items: center; gap: 4px; padding: 6px 8px;
+  border-top: 1px solid var(--border); flex: none;
+}
+.pop-foot button {
+  white-space: nowrap; flex: none;
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 6px;
+  color: var(--text-muted); font-size: 12px;
+}
+.pop-foot button:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.pop-foot .grow { flex: 1; }
+.pop-foot kbd { margin-left: 2px; }
+/* Zoomed in (or otherwise narrow): drop the key hint before anything wraps. */
+@media (max-width: 330px) { .pop-foot kbd { display: none; } .pop-foot button { padding: 0 6px; } }
