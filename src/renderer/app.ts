@@ -9,7 +9,7 @@ import {
   type SessionView,
   type SubTask,
 } from '../shared/types';
-import { ago, chip, esc, exitedSvg, fullTime, copyText, installLinkAffordances, isExited, safeUrl, statusIcon, toast } from './ui';
+import { ago, chip, esc, exitedSvg, fullTime, copyText, installTooltips, isExited, safeUrl, statusIcon, toast } from './ui';
 
 type View = 'all' | SessionStatus | 'ports';
 type GroupBy = 'status' | 'folder';
@@ -22,15 +22,16 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   error: 'Error',
   blocked: 'Blocked',
 };
-const NAV: Array<{ view: 'all' | SessionStatus; label: string }> = [
-  { view: 'all', label: 'All sessions' },
-  { view: 'waiting', label: 'Waiting for you' },
-  { view: 'working', label: 'Working' },
-  { view: 'idle', label: 'Idle' },
-  { view: 'blocked', label: 'Blocked' },
-  { view: 'error', label: 'Error' },
-  { view: 'done', label: 'Done' },
+const NAV: Array<{ view: 'all' | SessionStatus; label: string; tip: string }> = [
+  { view: 'all', label: 'All sessions', tip: 'Every running session' },
+  { view: 'waiting', label: 'Waiting for you', tip: 'Sessions with a question or an approval for you' },
+  { view: 'working', label: 'Working', tip: 'Sessions busy with a task' },
+  { view: 'idle', label: 'Idle', tip: 'Sessions that finished their turn and wait for a new prompt' },
+  { view: 'blocked', label: 'Blocked', tip: "Sessions waiting on something that isn't you: a port, CI, another agent" },
+  { view: 'error', label: 'Error', tip: 'Sessions that hit a problem they could not resolve' },
+  { view: 'done', label: 'Done', tip: 'Sessions whose task is finished' },
 ];
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const GROUP_ORDER: SessionStatus[] = ['waiting', 'error', 'working', 'blocked', 'idle', 'done'];
 
 const state = {
@@ -119,6 +120,7 @@ function setConnected(ok: boolean) {
   const el = $('conn');
   el.className = `conn ${ok ? 'ok' : 'down'}`;
   $('conn-label').textContent = ok ? location.host : 'Disconnected';
+  $('conn').dataset.tip = ok ? `Live connection to the Whamming server at ${location.host}` : 'Lost the connection to the Whamming server; retrying';
 }
 
 // ---------- filtering ----------
@@ -174,12 +176,12 @@ function renderSidebar() {
       const c = count(n.view);
       const active = state.view === n.view && !state.folder;
       const hot = n.view === 'waiting' && c > 0;
-      return `<button class="nav-item ${active ? 'active' : ''}" data-view="${n.view}">
+      return `<button class="nav-item ${active ? 'active' : ''}" data-view="${n.view}" data-tip="${esc(`${n.tip} (${c})`)}">
         ${n.view === 'all' ? allSvg : statusIcon(n.view)}
         <span class="label">${esc(n.label)}</span><span class="n ${hot ? 'hot' : ''}">${c || ''}</span></button>`;
     })
     .join('') +
-    `<button class="nav-item ${state.view === 'ports' && !state.folder ? 'active' : ''}" data-view="ports">
+    `<button class="nav-item ${state.view === 'ports' && !state.folder ? 'active' : ''}" data-view="ports" data-tip="${esc(`Ports claimed by agents, who is waiting for one, and what listens without a claim (${plural(state.ports.leases.length, 'claimed port')})`)}">
       ${portSvg}<span class="label">Ports</span><span class="n">${state.ports.leases.length || ''}</span></button>`;
 
   const folders = new Map<string, { name: string; n: number; waiting: number }>();
@@ -194,7 +196,7 @@ function renderSidebar() {
     [...folders.entries()]
       .sort((a, b) => a[1].name.localeCompare(b[1].name))
       .map(
-        ([path, f]) => `<button class="nav-item ${state.folder === path ? 'active' : ''}" data-folder="${esc(path)}" title="${esc(path)}">
+        ([path, f]) => `<button class="nav-item ${state.folder === path ? 'active' : ''}" data-folder="${esc(path)}" data-tip="${esc(`${path}\n${plural(f.n, 'running session')}${f.waiting ? `, ${f.waiting} waiting for you` : ''}`)}">
         ${folderSvg}<span class="label">${esc(f.name)}</span><span class="n ${f.waiting ? 'hot' : ''}">${f.n}</span></button>`,
       )
       .join('') || `<div class="nav-item muted" style="cursor:default">No active folders</div>`;
@@ -209,6 +211,7 @@ function renderList() {
     : (NAV.find((n) => n.view === state.view)?.label ?? 'Ports');
   $('view-title').textContent = title;
   $('view-count').textContent = list.length ? String(list.length) : '';
+  $('view-count').dataset.tip = plural(list.length, 'session') + ' in this view';
   document.querySelectorAll<HTMLButtonElement>('#group-by button').forEach((b) => b.classList.toggle('active', b.dataset.group === state.groupBy));
 
   if (!list.length) {
@@ -222,7 +225,7 @@ function renderList() {
   $('list').innerHTML = groups
     .map(
       (g) => `<div class="group">
-      <div class="group-head">${g.icon}<span>${esc(g.label)}</span><span class="n">${g.items.length}</span></div>
+      <div class="group-head">${g.icon}<span>${esc(g.label)}</span><span class="n" data-tip="${esc(plural(g.items.length, 'session'))}">${g.items.length}</span></div>
       ${g.items.map((s) => row(s) + subRows(s)).join('')}
     </div>`,
     )
@@ -250,17 +253,17 @@ function subRows(s: SessionView): string {
       <span class="tree"></span>
       <div class="sub-key">${statusIcon(t.status)}<span title="Subagent task key">${esc(t.key)}</span></div>
       <div class="row-main">
-        <span class="row-title ${t.title ? '' : 'empty'}">${esc(t.title || 'No task reported')}</span>
+        <span class="row-title ${t.title ? '' : 'empty'}" data-tip="${esc(t.title || "This subagent hasn't reported a title yet")}">${esc(t.title || 'No task reported')}</span>
         <span class="row-detail">${esc(t.detail ?? '')}</span>
       </div>
       <div class="row-chips">${t.links.slice(-2).map(chip).join('')}</div>
       <div class="row-meta"></div>
-      <div class="row-time" title="${esc(fullTime(t.updatedAt))}">${ago(t.updatedAt)}</div>
+      <div class="row-time" data-tip="Last update ${esc(fullTime(t.updatedAt))}">${ago(t.updatedAt)}</div>
     </div>`;
   return (
     shown.map(subRow).join('') +
     (done.length
-      ? `<div class="row subrow more-done" data-toggle-done="${esc(s.id)}"><span class="tree"></span>
+      ? `<div class="row subrow more-done" data-toggle-done="${esc(s.id)}" data-tip="${showDone ? 'Hide' : 'Show'} subagents that have finished"><span class="tree"></span>
           <div class="sub-key muted">${showDone ? 'Hide' : `${done.length}`} finished</div><div></div><div></div><div></div><div></div></div>`
       : '')
   );
@@ -268,30 +271,30 @@ function subRows(s: SessionView): string {
 
 function row(s: SessionView): string {
   const maxChips = 2;
-  const chips = s.links.slice(-maxChips).map(chip).join('') + (s.links.length > maxChips ? `<span class="chip more">+${s.links.length - maxChips}</span>` : '');
+  const chips = s.links.slice(-maxChips).map(chip).join('') + (s.links.length > maxChips ? `<span class="chip more" data-tip="${esc(plural(s.links.length - maxChips, 'more link'))}; open the session to see all">+${s.links.length - maxChips}</span>` : '');
   const sub = s.status === 'waiting' && s.detail ? s.detail : s.name !== s.title ? s.name : '';
   return `<div class="row ${isExited(s) ? 'exited' : s.status} ${s.stale || s.alive === false ? 'stale' : ''} ${s.id === state.selectedId ? 'selected' : ''}" data-id="${esc(s.id)}">
     ${isExited(s) ? exitedSvg : statusIcon(s.status)}
-    <div class="row-folder" title="${esc(s.folder)}">${esc(s.folderName)}</div>
+    <div class="row-folder" title="Folder: ${esc(s.folder)}">${esc(s.folderName)}</div>
     <div class="row-main">
-      <span class="row-title ${s.title ? '' : 'empty'}">${esc(s.title || 'No task reported')}</span>
+      <span class="row-title ${s.title ? '' : 'empty'}" data-tip="${esc(s.title || "The agent hasn't reported what it's working on yet")}">${esc(s.title || 'No task reported')}</span>
       <span class="row-detail">${esc(sub)}</span>
     </div>
     <div class="row-chips">${chips}</div>
     <div class="row-meta">
       ${
         s.tasks?.length
-          ? `<button class="sub-toggle ${state.collapsed.has(s.id) ? 'collapsed' : ''}" data-toggle-tasks="${esc(s.id)}" title="${state.collapsed.has(s.id) ? 'Show' : 'Hide'} subagents">${subtaskSvg}${taskCounts(s).active.length}/${s.tasks.length}</button>`
+          ? `<button class="sub-toggle ${state.collapsed.has(s.id) ? 'collapsed' : ''}" data-toggle-tasks="${esc(s.id)}" data-tip="${esc(`Subagents: ${taskCounts(s).active.length} of ${s.tasks.length} still running. Click to ${state.collapsed.has(s.id) ? 'show' : 'hide'} them`)}">${subtaskSvg}${taskCounts(s).active.length}/${s.tasks.length}</button>`
           : ''
       }
-      ${s.conflicts.length ? `<span class="tag danger" title="Also claimed by ${esc(s.conflicts.join(', '))}">name clash</span>` : ''}
+      ${s.conflicts.length ? `<span class="tag danger" title="Another running session has the same name: ${esc(s.conflicts.join(', '))}. Give one of them a new name with /rename">name clash</span>` : ''}
       ${s.alive === false && s.status !== 'done' ? '<span class="tag" title="The agent process is no longer running">exited</span>' : ''}
-      ${s.stale ? '<span class="stale-tag" title="No update in 15+ minutes">stale</span>' : ''}
-      ${s.unread ? `<span class="badge" title="Unread messages">${s.unread}</span>` : ''}
-      ${s.ports.map((p) => `<span class="port-tag" title="Claimed port">:${p}</span>`).join('')}
-      ${s.branch ? `<span class="branch" title="${esc(s.branch)}">${esc(s.branch)}</span>` : ''}
+      ${s.stale ? '<span class="stale-tag" title="No update in 15+ minutes; the agent may be stuck or forgot to report">stale</span>' : ''}
+      ${s.unread ? `<span class="badge" data-tip="${esc(`${plural(s.unread, 'unread message')} from other agents. Open the session to read ${s.unread === 1 ? 'it' : 'them'}`)}">${s.unread}</span>` : ''}
+      ${s.ports.map((p) => `<span class="port-tag" title="Port ${p} is claimed by this session">:${p}</span>`).join('')}
+      ${s.branch ? `<span class="branch" title="Git branch: ${esc(s.branch)}">${esc(s.branch)}</span>` : ''}
     </div>
-    <div class="row-time" title="${esc(fullTime(s.updatedAt))}">${ago(s.updatedAt)}</div>
+    <div class="row-time" data-tip="Last update ${esc(fullTime(s.updatedAt))}">${ago(s.updatedAt)}</div>
   </div>`;
 }
 
@@ -307,7 +310,7 @@ function sessionRef(id?: string, task?: string): string {
   const s = state.sessions.find((x) => x.id === id);
   const t = task ? s?.tasks?.find((x) => x.key === task) : undefined;
   const icon = t ? statusIcon(t.status) : s ? statusIcon(s.status) : '';
-  return `<button class="session-ref" data-select="${esc(id)}">${icon}<span>${esc(id)}${task ? ` <span class="muted">› ${esc(task)}</span>` : ''}</span></button>`;
+  return `<button class="session-ref" data-select="${esc(id)}" data-tip="Open this session">${icon}<span>${esc(id)}${task ? ` <span class="muted">› ${esc(task)}</span>` : ''}</span></button>`;
 }
 
 function leaseState(l: PortLeaseView): string {
@@ -335,17 +338,18 @@ function renderPorts() {
   );
   $('view-title').textContent = 'Ports';
   $('view-count').textContent = leases.length ? String(leases.length) : '';
+  $('view-count').dataset.tip = plural(leases.length, 'claimed port');
 
   const leaseRows = leases
     .map(
       (l) => `<div class="prow ${l.ownerAlive ? '' : 'stale'}">
-      <span class="pnum">:${l.port}</span>
-      <span class="ppurpose">${esc(l.purpose ?? '')}${l.adopted ? ' <span class="tag" title="Registered after it was already running">adopted</span>' : ''}</span>
+      <span class="pnum" title="Port">:${l.port}</span>
+      <span class="ppurpose" title="What it is for, as the agent said">${esc(l.purpose ?? '')}${l.adopted ? ' <span class="tag" title="Registered after it was already running">adopted</span>' : ''}</span>
       ${sessionRef(l.session, l.task)}
-      <span class="pfolder" title="${esc(l.folder ?? '')}">${esc(l.folderName ?? '')}</span>
+      <span class="pfolder" title="Folder: ${esc(l.folder ?? '')}">${esc(l.folderName ?? '')}</span>
       ${leaseState(l)}
-      <span class="row-time" title="${esc(fullTime(l.claimedAt))}">${ago(l.claimedAt)}</span>
-      <button class="icon-btn release" data-release="${l.port}" title="Release claim">
+      <span class="row-time" title="Claimed ${esc(fullTime(l.claimedAt))}">${ago(l.claimedAt)}</span>
+      <button class="icon-btn release" data-release="${l.port}" title="Release this claim (click twice)">
         <svg width="12" height="12" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
     </div>`,
@@ -378,9 +382,9 @@ function renderPorts() {
       <span class="pnum">:${q.port}</span>
       <span class="ppurpose">${q.waiters.map((w, i) => `${i + 1}. ${esc(w.session)}${w.task ? ` › ${esc(w.task)}` : ''}${w.purpose ? ` <span class="muted">(${esc(w.purpose)})</span>` : ''}`).join(' &nbsp;')}</span>
       ${sessionRef(q.waiters[0]?.session, q.waiters[0]?.task)}
-      <span class="pfolder">${holderOf(q.port)}</span>
-      <span class="pstate blocked">${q.waiters.length} waiting</span>
-      <span class="row-time" title="${esc(fullTime(q.waiters[0].since))}">${ago(q.waiters[0].since)}</span><span></span>
+      <span class="pfolder" title="Holds the port now">${holderOf(q.port)}</span>
+      <span class="pstate blocked" title="${esc(`${plural(q.waiters.length, 'agent')} in line for this port, in the order shown`)}">${q.waiters.length} waiting</span>
+      <span class="row-time" title="First in line since ${esc(fullTime(q.waiters[0].since))}">${ago(q.waiters[0].since)}</span><span></span>
     </div>`,
     )
     .join('');
@@ -388,21 +392,21 @@ function renderPorts() {
   const hidden = state.showAllListeners ? 0 : others.length;
   $('list').innerHTML = `${
     queueRows
-      ? `<div class="group"><div class="group-head">${statusIcon('blocked')}<span>Waiting for a port</span><span class="n">${state.ports.queues.length}</span></div>${queueRows}</div>`
+      ? `<div class="group"><div class="group-head">${statusIcon('blocked')}<span>Waiting for a port</span><span class="n" title="Ports that agents are queueing for">${state.ports.queues.length}</span></div>${queueRows}</div>`
       : ''
   }
     <div class="group">
-      <div class="group-head">${portSvg}<span>Claimed</span><span class="n">${leases.length}</span></div>
+      <div class="group-head">${portSvg}<span>Claimed</span><span class="n" title="Ports claimed through Whamming">${leases.length}</span></div>
       ${leaseRows || `<div class="pempty">No claimed ports. Agents claim with <code>whamming port claim --prefer 5432 --purpose postgres</code>.</div>`}
     </div>
     <div class="group">
       <div class="group-head">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.3" stroke-dasharray="2.4 2"/></svg>
-        <span>Listening, not claimed</span><span class="n">${unclaimed.length}</span>
+        <span>Listening, not claimed</span><span class="n" title="Ports in use that no agent claimed">${unclaimed.length}</span>
         <span style="flex:1"></span>
         ${
           others.length
-            ? `<button class="link-btn" data-action="toggle-listeners">${state.showAllListeners ? 'Hide' : `Show ${hidden}`} other listener${others.length === 1 ? '' : 's'}</button>`
+            ? `<button class="link-btn" data-action="toggle-listeners" title="Other processes on this machine listening on a port (not started by agents or containers)">${state.showAllListeners ? 'Hide' : `Show ${hidden}`} other listener${others.length === 1 ? '' : 's'}</button>`
             : ''
         }
       </div>
@@ -418,8 +422,8 @@ function detailTasks(d: SessionView): string {
     <div class="dtasks">${tasks
       .map(
         (t) => `<div class="dtask ${t.status}">
-          <div class="dtask-top">${statusIcon(t.status)}<span class="dtask-title">${esc(t.title || t.key)}</span><span class="tl-time" title="${esc(fullTime(t.updatedAt))}">${ago(t.updatedAt)}</span></div>
-          <div class="dtask-key">${esc(t.key)}</div>
+          <div class="dtask-top">${statusIcon(t.status)}<span class="dtask-title">${esc(t.title || t.key)}</span><span class="tl-time" title="Last update ${esc(fullTime(t.updatedAt))}">${ago(t.updatedAt)}</span></div>
+          <div class="dtask-key" title="Subagent task key">${esc(t.key)}</div>
           ${t.detail ? `<div class="dtask-detail ${t.status === 'error' || t.status === 'waiting' ? 'warn' : ''}">${esc(t.detail)}</div>` : ''}
           ${t.links.length ? `<div class="dtask-links">${t.links.map(chip).join('')}</div>` : ''}
         </div>`,
@@ -436,7 +440,7 @@ function detailPorts(d: SessionView): string {
       ${leases
         .map(
           (l) => `<div class="dport"><span class="pnum">:${l.port}</span><span class="ppurpose">${esc(l.purpose ?? '')}</span>${leaseState(l)}
-          <button class="icon-btn release" data-release="${l.port}" title="Release claim"><svg width="12" height="12" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div>`,
+          <button class="icon-btn release" data-release="${l.port}" title="Release this claim (click twice)"><svg width="12" height="12" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div>`,
         )
         .join('')}
       ${rogue
@@ -507,21 +511,21 @@ function renderDetail() {
           : ''
       }
       <dl class="props">
-        <dt>Status</dt><dd>${statusIcon(d.status)} ${esc(STATUS_LABEL[d.status])}${d.stale ? ' <span class="stale-tag">stale</span>' : ''}</dd>
+        <dt>Status</dt><dd>${statusIcon(d.status)} ${esc(STATUS_LABEL[d.status])}${d.stale ? ' <span class="stale-tag" title="No update in 15+ minutes">stale</span>' : ''}</dd>
         <dt>Session</dt><dd><span class="mono copyable" data-copy="${esc(d.id)}" title="Copy session id">${esc(d.id)}</span>${
-          d.nameSource === 'user' ? '<span class="muted">· renamed</span>' : ''
+          d.nameSource === 'user' ? '<span class="muted" title="Named by you with /rename">· renamed</span>' : ''
         }</dd>
         ${
           d.pid
             ? `<dt>Process</dt><dd><span class="mono">pid ${d.pid}</span>${
               d.alive === false
-                ? `<span class="tag">exited</span>${d.endedAt ? `<span class="muted" title="${esc(fullTime(d.endedAt))}">· ${ago(d.endedAt)} ago</span>` : ''}`
-                : '<span class="muted">· running</span>'
+                ? `<span class="tag" title="The Claude Code process has ended">exited</span>${d.endedAt ? `<span class="muted" title="Ended ${esc(fullTime(d.endedAt))}">· ${ago(d.endedAt)} ago</span>` : ''}`
+                : '<span class="muted" title="The Claude Code process is running">· running</span>'
             }</dd>`
             : ''
         }
         <dt>Folder</dt><dd><span class="mono copyable" data-copy="${esc(d.folder)}" title="Copy path">${esc(d.folder)}</span></dd>
-        ${d.branch ? `<dt>Branch</dt><dd><span class="mono copyable" data-copy="${esc(d.branch)}">${esc(d.branch)}</span></dd>` : ''}
+        ${d.branch ? `<dt>Branch</dt><dd><span class="mono copyable" data-copy="${esc(d.branch)}" title="Copy branch name">${esc(d.branch)}</span></dd>` : ''}
         ${d.agent ? `<dt>Agent</dt><dd>${esc(d.agent)}</dd>` : ''}
         <dt>Started</dt><dd>${esc(fullTime(d.createdAt))}</dd>
         <dt>Updated</dt><dd>${esc(fullTime(d.updatedAt))} <span class="muted">· ${ago(d.updatedAt)} ago</span></dd>
@@ -544,7 +548,7 @@ function renderDetail() {
         d.peers.length
           ? d.peers
               .map(
-                (p) => `<button class="peer" data-select="${esc(p.id)}">${statusIcon(p.status)}<span class="pname">${esc(p.id)}</span>
+                (p) => `<button class="peer" data-select="${esc(p.id)}" title="Open this session">${statusIcon(p.status)}<span class="pname">${esc(p.id)}</span>
                 <span class="ptitle">${esc(p.title ?? '')}${p.relation !== 'same' ? ` <span class="muted">(${p.relation === 'child' ? 'subfolder' : 'parent folder'})</span>` : ''}</span></button>`,
               )
               .join('')
@@ -559,14 +563,14 @@ function renderDetail() {
         ${d.messages
           .slice(-10)
           .map(
-            (m) => `<div class="msg ${m.read ? '' : 'unread'}"><div class="msg-head"><b>${esc(m.from)}</b><span>${ago(m.at)}${m.read ? '' : ' · unread'}</span></div>
+            (m) => `<div class="msg ${m.read ? '' : 'unread'}"><div class="msg-head"><b>${esc(m.from)}</b><span title="${esc(fullTime(m.at))}">${ago(m.at)}${m.read ? '' : ' · unread'}</span></div>
             <div class="msg-body">${esc(m.body)}</div></div>`,
           )
           .join('')}
       </div>
       <form class="composer" data-action="send">
         <textarea name="body" placeholder="Leave a message for ${esc(d.name)}…" rows="1"></textarea>
-        <button class="btn" type="submit">Send</button>
+        <button class="btn" type="submit" title="Leave a message in this session's inbox; the agent reads it at the start of its next turn">Send</button>
       </form>
 
       <div class="section-title">Activity</div>
@@ -579,7 +583,7 @@ function renderDetail() {
           .join('')}
       </div>
 
-      <div class="detail-foot"><button class="btn danger" data-action="remove">Remove session</button></div>
+      <div class="detail-foot"><button class="btn danger" data-action="remove" title="Remove this entry from Whamming (the agent itself keeps running). Click twice">Remove session</button></div>
     </div>`;
   if (sameSession) {
     const ta = el.querySelector('textarea')!;
@@ -806,7 +810,7 @@ document.addEventListener('click', async (e) => {
   if (rel) {
     if (!rel.classList.contains('armed')) {
       rel.classList.add('armed');
-      rel.title = 'Click again to release';
+      rel.dataset.tip = 'Click again to release';
       setTimeout(() => rel.classList.remove('armed'), 3000);
       return;
     }
@@ -916,6 +920,6 @@ setInterval(async () => {
 }, 5000);
 
 // Boot
-installLinkAffordances();
+installTooltips();
 connectStream();
 refresh().then(selectFromHash);

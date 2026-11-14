@@ -11,15 +11,15 @@
     <div class="app" id="app">
       <aside class="sidebar">
         <div class="titlebar-space"></div>
-        <div class="brand">
+        <div class="brand" title="Whamming: what am I working on?">
           <div class="brand-mark">W</div>
           <span>Whamming</span>
         </div>
         <nav class="nav" id="nav"></nav>
-        <div class="nav-section">Folders</div>
+        <div class="nav-section" title="Folders with running sessions">Folders</div>
         <nav class="nav folders" id="folders"></nav>
         <div class="sidebar-footer">
-          <button class="footer-btn" id="setup-btn" title="How agents report in">
+          <button class="footer-btn" id="setup-btn" title="Set up the command line tool, Claude Code hooks and agent instructions">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M5 4 1.5 8 5 12M11 4l3.5 4L11 12M9.5 2.5l-3 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Agent setup
           </button>
@@ -32,10 +32,10 @@
           <div class="topbar-title"><span id="view-title">All sessions</span><span class="count" id="view-count"></span></div>
           <div class="topbar-actions">
             <div class="segmented" id="group-by">
-              <button data-group="status" class="active">Status</button>
-              <button data-group="folder">Folder</button>
+              <button data-group="status" class="active" title="Group sessions by status">Status</button>
+              <button data-group="folder" title="Group sessions by folder">Folder</button>
             </div>
-            <label class="search">
+            <label class="search" title="Filter by title, folder, session, branch or port (press /)">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
               <input id="search" placeholder="Filter…" spellcheck="false" autocomplete="off" />
               <kbd>/</kbd>
@@ -52,7 +52,7 @@
       <div class="modal" role="dialog" aria-labelledby="modal-title">
         <div class="modal-head">
           <h2 id="modal-title">Agent setup</h2>
-          <button class="icon-btn" id="modal-close" aria-label="Close">
+          <button class="icon-btn" id="modal-close" aria-label="Close" title="Close (Esc)">
             <svg width="14" height="14" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           </button>
         </div>

@@ -1,5 +1,5 @@
 import type { PortsSnapshot, SessionView } from '../shared/types';
-import { ago, chip, esc, installLinkAffordances, isExited, statusIcon } from './ui';
+import { ago, chip, esc, fullTime, installTooltips, isExited, statusIcon } from './ui';
 
 interface Bridge {
   openSession(id: string): void;
@@ -38,11 +38,11 @@ async function load() {
 }
 
 function sub(s: SessionView): string {
-  const bits = [`<span>${esc(s.folderName)}</span>`];
-  if (s.name !== s.folderName) bits.push(`<span class="mono">${esc(s.id)}</span>`);
+  const bits = [`<span title="Folder: ${esc(s.folder)}">${esc(s.folderName)}</span>`];
+  if (s.name !== s.folderName) bits.push(`<span class="mono" title="Session name">${esc(s.id)}</span>`);
   const active = (s.tasks ?? []).filter((t) => t.status !== 'done').length;
-  if (active) bits.push(`${active} subagent${active === 1 ? '' : 's'}`);
-  if (s.ports.length) bits.push(`<span class="mono">${s.ports.map((p) => ':' + p).join(' ')}</span>`);
+  if (active) bits.push(`<span title="Subagents still running">${active} subagent${active === 1 ? '' : 's'}</span>`);
+  if (s.ports.length) bits.push(`<span class="mono" title="Ports claimed by this session">${s.ports.map((p) => ':' + p).join(' ')}</span>`);
   return bits.join(' · ');
 }
 
@@ -50,7 +50,7 @@ function item(s: SessionView, mode: 'full' | 'compact'): string {
   order.push(s.id);
   const full = mode === 'full';
   return `<div class="item ${s.status} ${full ? '' : 'compact'}" data-id="${esc(s.id)}">
-    <div class="item-top">${statusIcon(s.status)}<span class="ttl">${esc(s.title || s.name)}</span><span class="time">${ago(s.updatedAt)}</span></div>
+    <div class="item-top">${statusIcon(s.status)}<span class="ttl">${esc(s.title || s.name)}</span><span class="time" title="Last update ${esc(fullTime(s.updatedAt))}">${ago(s.updatedAt)}</span>${s.unread ? `<span class="badge" title="${s.unread} unread message${s.unread === 1 ? '' : 's'} from other agents">${s.unread}</span>` : ''}</div>
     <div class="item-sub">${sub(s)}</div>
     ${full && s.detail ? `<div class="q"><span>${esc(s.detail)}</span></div>` : ''}
     ${full && s.links.length ? `<div class="chips">${s.links.slice(-3).map(chip).join('')}</div>` : ''}
@@ -60,9 +60,9 @@ function item(s: SessionView, mode: 'full' | 'compact'): string {
 function section(label: string, list: SessionView[], mode: 'full' | 'compact', limit = Infinity): string {
   if (!list.length) return '';
   const shown = list.slice(0, limit);
-  return `<div class="pop-sec">${esc(label)} <span class="n">${list.length}</span></div>
+  return `<div class="pop-sec">${esc(label)} <span class="n" title="${list.length} session${list.length === 1 ? '' : 's'}">${list.length}</span></div>
     ${shown.map((s) => item(s, mode)).join('')}
-    ${list.length > shown.length ? `<div class="more">+${list.length - shown.length} more</div>` : ''}`;
+    ${list.length > shown.length ? `<div class="more" title="Open the dashboard to see all">+${list.length - shown.length} more</div>` : ''}`;
 }
 
 function render() {
@@ -89,16 +89,16 @@ function render() {
   root.innerHTML = `
     <div class="pop-head">
       <img src="icon.png" alt="">
-      <div class="t"><b>Whamming</b><span class="sum">${sum.join(' · ') || 'Nothing running'}</span></div>
+      <div class="t"><b>Whamming</b><span class="sum" title="Running sessions by status">${sum.join(' · ') || 'Nothing running'}</span></div>
     </div>
     <div class="pop-scroll">${body}</div>
     <div class="pop-foot">
-      <button data-act="ports" title="Claimed ports">
+      <button data-act="ports" title="Ports claimed by agents; opens the Ports view">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="4" width="11" height="8" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M5.5 8h.01M8 8h.01M10.5 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         ${ports.leases.length} port${ports.leases.length === 1 ? '' : 's'}
       </button>
       <span class="grow"></span>
-      <button data-act="dashboard">Open dashboard <kbd>↵</kbd></button>
+      <button data-act="dashboard" title="Open the full dashboard (Enter)">Open dashboard <kbd>↵</kbd></button>
       <button data-act="quit" title="Quit Whamming">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2.5v5M4.6 4.6a5 5 0 1 0 6.8 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       </button>
@@ -155,9 +155,9 @@ es.addEventListener('change', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     kbd = -1;
-    installLinkAffordances();
-load();
+    load();
   }
 });
 setInterval(() => !document.hidden && render(), 30_000);
+installTooltips();
 load();
