@@ -35,6 +35,7 @@ body.popover { overflow: hidden; font-size: 12.5px; }
 }
 /* Clamp the text itself, not the padded box, so no half line peeks out under the padding. */
 .item .q span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.item.blocked .q { background: color-mix(in srgb, var(--st-blocked) 12%, transparent); }
 .item.error .q { background: color-mix(in srgb, var(--st-error) 12%, transparent); }
 .item .chips { margin: 6px 0 0 22px; display: flex; gap: 5px; flex-wrap: wrap; }
 .item .chip { height: 20px; font-size: 11px; padding: 0 7px; }

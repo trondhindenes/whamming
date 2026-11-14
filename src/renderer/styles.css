@@ -16,6 +16,7 @@
 
   --st-waiting: #f2994a;
   --st-working: #f2c94c;
+  --st-blocked: #6aa9d9;
   --st-idle: #858a93;
   --st-done: #5e6ad2;
   --st-error: #eb5757;
@@ -212,6 +213,8 @@ kbd {
 }
 .tag { color: var(--text-muted); font-size: 11.5px; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
 .tag.danger { color: var(--st-error); border-color: color-mix(in srgb, var(--st-error) 45%, transparent); }
+.callout.blocked { border-color: color-mix(in srgb, var(--st-blocked) 40%, transparent); background: color-mix(in srgb, var(--st-blocked) 9%, transparent); }
+.callout.blocked .callout-label { color: var(--st-blocked); }
 .callout.danger { border-color: color-mix(in srgb, var(--st-error) 40%, transparent); background: color-mix(in srgb, var(--st-error) 9%, transparent); }
 .callout.danger .callout-label { color: var(--st-error); }
 .link-btn { color: var(--accent); font-family: var(--mono); font-size: 12px; }
@@ -240,6 +243,8 @@ kbd {
 .pstate.live::before { background: #4cb782; box-shadow: 0 0 0 3px rgba(76, 183, 130, 0.15); }
 .pstate.warn { color: var(--st-waiting); }
 .pstate.warn::before { background: var(--st-waiting); }
+.pstate.blocked { color: var(--st-blocked); }
+.pstate.blocked::before { background: var(--st-blocked); }
 .pstate.gone::before { background: transparent; border: 1px dashed var(--text-faint); }
 .release { width: 22px; height: 22px; opacity: 0; }
 .prow:hover .release, .dport:hover .release, .release.armed { opacity: 1; }

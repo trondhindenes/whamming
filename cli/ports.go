@@ -4,14 +4,88 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
+
+// parseWait accepts Go durations ("10m", "90s") or a plain number of seconds.
+func parseWait(v string) (time.Duration, error) {
+	if n, err := strconv.Atoi(v); err == nil {
+		return time.Duration(n) * time.Second, nil
+	}
+	return time.ParseDuration(v)
+}
+
+type claimResponse struct {
+	Lease *struct {
+		Port int `json:"port"`
+	} `json:"lease"`
+	Waiting       bool   `json:"waiting"`
+	Position      int    `json:"position"`
+	HeldBy        string `json:"heldBy"`
+	OutsideAgents bool   `json:"outsideAgents"`
+}
+
+// waitForPort keeps asking for an exact port until it's ours or the deadline passes.
+// The server holds each request up to ~25s; progress goes to stderr, the port to stdout.
+func waitForPort(c *ctx, body map[string]any, port int, wait time.Duration) {
+	body["wait"] = true
+	deadline := time.Now().Add(wait)
+	cancel := func() {
+		_ = call("DELETE", fmt.Sprintf("/api/ports/%d/wait?%s", port, c.meQuery()), nil, 3*time.Second, nil)
+	}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		cancel()
+		fmt.Fprintf(os.Stderr, "whamming: stopped waiting for :%d\n", port)
+		os.Exit(130)
+	}()
+	last := ""
+	for {
+		// Ask the server to hold this request no longer than the time we have left.
+		left := time.Until(deadline)
+		if left < 0 {
+			left = 0
+		}
+		body["waitMs"] = left.Milliseconds()
+		var r claimResponse
+		if err := call("POST", "/api/ports/claim", body, 35*time.Second, &r); err != nil {
+			fail("%s", err)
+		}
+		if r.Lease != nil {
+			if last != "" {
+				fmt.Fprintf(os.Stderr, "whamming: got :%d\n", r.Lease.Port)
+			}
+			fmt.Println(r.Lease.Port)
+			return
+		}
+		msg := fmt.Sprintf("waiting for :%d (%s), position %d", port, r.HeldBy, r.Position)
+		if r.OutsideAgents {
+			msg += ". It's held by a process outside Whamming, so no agent will release it; consider asking the user"
+		}
+		if msg != last {
+			fmt.Fprintln(os.Stderr, "whamming: "+msg)
+			last = msg
+		}
+		if !time.Now().Before(deadline) {
+			cancel()
+			fail("gave up waiting for :%d after %s (%s)", port, wait, r.HeldBy)
+		}
+	}
+}
 
 func (c *ctx) meQuery() string {
 	q := url.Values{"session": {c.id}}
 	if c.claude != nil {
 		q.Set("pid", strconv.Itoa(c.claude.Pid))
+	}
+	if c.task != "" {
+		q.Set("task", c.task) // a subagent's claims are its own, not the whole session's
 	}
 	return q.Encode()
 }
@@ -26,6 +100,9 @@ func runPort(c *ctx, rest []string) {
 		c.needID()
 		folder := c.folder()
 		body := map[string]any{"session": c.id, "folder": folder, "branch": gitBranch(folder)}
+		if c.task != "" {
+			body["task"] = c.task
+		}
 		c.identity(body)
 		if c.claude != nil {
 			body["agent"] = "claude-code"
@@ -51,6 +128,18 @@ func runPort(c *ctx, rest []string) {
 		}
 		if c.a.bools["adopt"] {
 			body["adopt"] = true
+		}
+		if v := c.a.str("wait"); v != "" {
+			wait, err := parseWait(v)
+			if err != nil || wait <= 0 {
+				fail("--wait takes a duration like 10m or 90s")
+			}
+			n, ok := body["port"].(int)
+			if !ok {
+				fail("--wait needs an exact port: whamming port claim PORT --wait 10m")
+			}
+			waitForPort(c, body, n, wait)
+			return
 		}
 		var r struct {
 			Lease struct {

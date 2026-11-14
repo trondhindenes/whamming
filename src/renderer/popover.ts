@@ -19,7 +19,7 @@ const bridge: Bridge = (window as any).whamming ?? {
 };
 
 let sessions: SessionView[] = [];
-let ports: PortsSnapshot = { leases: [], unclaimed: [] };
+let ports: PortsSnapshot = { leases: [], unclaimed: [], queues: [] };
 let order: string[] = [];
 let kbd = -1;
 
@@ -71,6 +71,7 @@ function render() {
   const by = (st: string) => live.filter((s) => s.status === st);
   const waiting = by('waiting');
   const errors = by('error');
+  const blocked = by('blocked');
   const working = by('working');
   const idle = by('idle');
 
@@ -78,10 +79,11 @@ function render() {
   if (waiting.length) sum.push(`<span class="hot">${waiting.length} need${waiting.length === 1 ? 's' : ''} you</span>`);
   if (errors.length) sum.push(`<span class="err">${errors.length} error${errors.length === 1 ? '' : 's'}</span>`);
   if (working.length) sum.push(`${working.length} working`);
+  if (blocked.length) sum.push(`${blocked.length} blocked`);
   if (idle.length) sum.push(`${idle.length} idle`);
 
   const body = live.length
-    ? section('Needs you', waiting, 'full') + section('Errors', errors, 'full') + section('Working', working, 'compact') + section('Idle', idle, 'compact', MAX_IDLE)
+    ? section('Needs you', waiting, 'full') + section('Errors', errors, 'full') + section('Working', working, 'compact') + section('Blocked', blocked, 'full') + section('Idle', idle, 'compact', MAX_IDLE)
     : `<div class="pop-empty"><b>All quiet</b>No agents are running right now.</div>`;
 
   root.innerHTML = `

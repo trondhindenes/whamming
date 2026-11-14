@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
-import { PortConflict, Store, ValidationError, type SessionPatch } from './store';
+import { DeadlockError, PortConflict, Store, ValidationError, type SessionPatch } from './store';
 import { attribute, invalidateListeners, isClaudeProcess, isPortFree, listContainerPorts, listListeners, processParents } from './ports';
 import type { PortListener, PortsSnapshot } from '../shared/types';
 import { DATA_DIR } from './paths';
@@ -93,7 +93,11 @@ export function findBundledCli(distDir: string): string | null {
   return existsSync(p) && !p.includes('.asar') ? p : null;
 }
 
+/** How long one long-poll for a busy port is held before the CLI asks again. */
+const WAIT_POLL_MS = 25_000;
+
 export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOptions = {}) {
+  store.setPortProbe(isPortFree);
   /** Path agents should call: the stable symlink once installed, else the bundled binary. */
   const cliPath = () => (cliStatus(bundledCli).installed ? CLI_LINK : bundledCli);
   type OsState = [Awaited<ReturnType<typeof listListeners>>, Map<number, number>, Awaited<ReturnType<typeof listContainerPorts>>];
@@ -147,7 +151,7 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
     const unclaimed = [...byPort.values()]
       .filter((l) => !leased.has(l.port))
       .sort((a, b) => Number(!a.session) - Number(!b.session) || Number(!a.container) - Number(!b.container) || a.port - b.port);
-    return { leases, unclaimed };
+    return { leases, unclaimed, queues: store.queuesSnapshot() };
   }
 
   /** The session a port request acts for: by pid first, else by name (created if missing). */
@@ -235,20 +239,55 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
       if (!rawId && method === 'GET') return send(res, 200, await portsSnapshot());
       if (!rawId && method === 'DELETE') {
         const sid = sessionFor({ session: url.searchParams.get('session'), pid: url.searchParams.get('pid') });
-        return send(res, 200, { released: store.releaseAll(sid) });
+        return send(res, 200, { released: store.releaseAll(sid, url.searchParams.get('task') || undefined) });
       }
       if (rawId === 'claim' && method === 'POST') {
         const body = await readJson(req);
         const sid = sessionFor(body);
+        const task = typeof body.task === 'string' && body.task ? body.task : undefined;
+        const owner = { session: sid, task };
+        const wait = body.wait === true;
+        if (wait && body.port === undefined) throw new ValidationError('wait needs an exact port (whamming port claim PORT --wait)');
         try {
-          const r = await store.claimPort(sid, { port: body.port, prefer: body.prefer, purpose: body.purpose, adopt: !!body.adopt }, isPortFree);
+          const r = await store.claimPort(sid, { port: body.port, prefer: body.prefer, purpose: body.purpose, adopt: !!body.adopt, task }, isPortFree);
           return send(res, r.created ? 201 : 200, { lease: r.lease, session: sid });
         } catch (err) {
-          if (err instanceof PortConflict) return send(res, 409, await conflictBody(err));
-          throw err;
+          if (!(err instanceof PortConflict)) throw err;
+          if (!wait) return send(res, 409, await conflictBody(err));
+          // Join the queue and hold this request until the port is ours or the poll window ends.
+          const port = err.info.port;
+          const held = store.getLease(port);
+          const listener = (await listeners(true)).get(port);
+          const holderSession = held && store.leaseOwnerAlive(held) ? (held.task ? `${held.session} › ${held.task}` : held.session) : undefined;
+          const outsideAgents = !holderSession && !!listener && !listener.session;
+          const heldBy = holderSession
+            ? `held by ${holderSession}${held!.purpose ? ` for ${held!.purpose}` : ''}`
+            : listener
+              ? `held by ${listener.container ? `container ${listener.container}` : `${listener.command} (pid ${listener.pid})`}${listener.session ? `, started by ${listener.session}` : ', not by an agent'}`
+              : 'queued behind other agents';
+          let joined;
+          try {
+            joined = store.enqueue(owner, port, body.purpose, heldBy);
+          } catch (e) {
+            if (e instanceof DeadlockError) return send(res, 409, { error: e.message, deadlock: true });
+            throw e;
+          }
+          const waiting = () => send(res, 202, { waiting: true, port, position: store.positionOf(owner, port), heldBy, outsideAgents, session: sid });
+          // First request: answer right away so the agent learns its position and who holds the port.
+          if (joined.created) return waiting();
+          // Later requests: hold until granted, but never longer than the client has left (waitMs).
+          const asked = Number(body.waitMs);
+          const hold = Math.max(0, Math.min(WAIT_POLL_MS, Number.isFinite(asked) && body.waitMs !== undefined ? asked : WAIT_POLL_MS));
+          const lease = await store.waitForGrant(joined.waiter, hold);
+          if (lease) return send(res, 201, { lease, session: sid, waited: true });
+          return waiting();
         }
       }
       const port = Number(rawId);
+      if (sub === 'wait' && method === 'DELETE' && Number.isInteger(port)) {
+        const sid = sessionFor({ session: url.searchParams.get('session'), pid: url.searchParams.get('pid') });
+        return send(res, 200, { cancelled: store.cancelWait({ session: sid, task: url.searchParams.get('task') || undefined }, port) });
+      }
       if (Number.isInteger(port) && port > 0 && port < 65536) {
         if (method === 'GET') {
           const lease = store.getLease(port);
@@ -261,7 +300,7 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
           const force = url.searchParams.get('force') === '1';
           const sid = force ? undefined : sessionFor({ session: url.searchParams.get('session'), pid: url.searchParams.get('pid') });
           try {
-            return send(res, 200, { released: store.releasePort(port, sid) });
+            return send(res, 200, { released: store.releasePort(port, sid ? { session: sid, task: url.searchParams.get('task') || undefined } : undefined) });
           } catch (err) {
             if (err instanceof PortConflict) return send(res, 409, { error: err.message, conflict: err.info });
             throw err;

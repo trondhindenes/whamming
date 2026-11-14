@@ -63,12 +63,12 @@ function focusSession(id: string) {
   showWindow('#/s/' + encodeURIComponent(id));
 }
 
-const STATUS_GLYPH: Record<SessionStatus, string> = { waiting: '◉', error: '⊗', working: '◐', idle: '◌', done: '✓' };
+const STATUS_GLYPH: Record<SessionStatus, string> = { waiting: '◉', error: '⊗', working: '◐', blocked: '⏸', idle: '◌', done: '✓' };
 
 /** Right-click on the Dock icon: jump straight to a session. */
 function updateDockMenu(sessions: SessionView[]) {
   if (process.platform !== 'darwin' || !app.dock) return;
-  const order: SessionStatus[] = ['waiting', 'error', 'working', 'idle'];
+  const order: SessionStatus[] = ['waiting', 'error', 'working', 'blocked', 'idle'];
   const live = sessions
     .filter((s) => s.alive !== false && s.status !== 'done')
     .sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status))
@@ -119,6 +119,21 @@ function watchForAttention(s: Store) {
     }
   });
   refreshBadge();
+
+  // Blocked is "waiting on something that isn't you", so it doesn't notify, unless it lasts long
+  // enough that something is probably stuck. Once per blocked episode.
+  const BLOCKED_ALERT_MS = 10 * 60 * 1000;
+  const alerted = new Map<string, string>(); // session id -> statusSince we alerted for
+  setInterval(() => {
+    for (const v of s.list({ status: 'blocked' })) {
+      if (v.alive === false || !v.statusSince || alerted.get(v.id) === v.statusSince) continue;
+      if (Date.now() - Date.parse(v.statusSince) < BLOCKED_ALERT_MS || !Notification.isSupported()) continue;
+      alerted.set(v.id, v.statusSince);
+      const n = new Notification({ title: `${v.name} · blocked for 10 minutes`, subtitle: v.folderName, body: v.detail || v.title || '' });
+      n.on('click', () => focusSession(v.id));
+      n.show();
+    }
+  }, 30_000).unref();
 }
 
 app.whenReady().then(async () => {

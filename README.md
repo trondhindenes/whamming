@@ -28,11 +28,18 @@ parallel sessions don't fight over `5432`.
 - **Subagents** show up as child rows under the session that spawned them.
 - **Coordination**: agents can ask who else works in the same folder, and leave each other messages.
 - **Port claims**: agents ask Whamming for a port before binding one, checked against other agents'
-  claims and what's actually listening, including docker compose containers.
+  claims and what's actually listening, including docker compose containers. If an app needs one specific
+  port and it's busy, agents wait in a fair queue (shown as *blocked*), the holder is asked to release it,
+  and deadlocks are detected.
 - **Notices exits** within about 2 seconds (Ctrl-C, crash, closed terminal, `/clear`) without slowing Claude's
   exit, and merges a resumed session (`claude -r`) back into its old entry.
 
 <br clear="right">
+
+Two subagents of one session need the same hardcoded port: `e2e-chrome` holds `:3000`, `e2e-safari` waits
+in line (*blocked*), and the parent got a message asking for the port back when Chrome is done.
+
+![Subagents queueing for a port](docs/screenshots/subagents-ports.png)
 
 ## Install
 
@@ -79,7 +86,9 @@ Claude Code ──hooks──▶ whamming hook ─┐
 - **Exits.** Every 2 seconds the server checks each session's process and Claude's session file. Ended
   sessions move to *Exited*, release their port claims, and are kept for 3 days so a resume can merge into them.
 - **Subagents** run inside their parent's process, so they can't be told apart automatically. They report
-  with `--task <key>`, and the parent passes them the key when it spawns them.
+  with `--task <key>`, and the parent passes them the key when it spawns them. Port claims and queue places
+  belong to the subagent (`session › task`), so two subagents of one session queue for a port like any
+  two agents, and one can't release the other's port.
 - **Finding the server.** While it runs, Whamming writes `~/.whamming/status.json` (`pid`, `port`, `url`,
   `version`). The CLI uses `WHAMMING_URL` / `WHAMMING_PORT`, then that file, then port 4477. A stale file
   (its process is gone) means "not running", without a network attempt. If 4477 is taken, the server uses
@@ -97,12 +106,14 @@ whamming peers                                     # who else works in this fold
 whamming send <session> "heads up: I'm editing src/payments"
 whamming inbox
 PG_PORT=$(whamming port claim --prefer 5432 --purpose postgres)      # 5432 if free, else another free port
+whamming port claim 5432 --wait 10m --purpose postgres              # exactly 5432; queue for it if busy
 whamming port release --all
 whamming ports                                     # who holds what, and unclaimed listeners
 whamming ping                                      # is Whamming running, where, which version
 ```
 
-Statuses: `working`, `waiting`, `idle`, `done`, `error`. `--id` / `WHAMMING_SESSION` set the name for non-Claude
+Statuses: `working`, `waiting` (needs you), `blocked` (waiting on something else: a port, CI, another agent),
+`idle`, `done`, `error`. Only `waiting` and `error` notify you; `blocked` does once it has lasted 10 minutes. `--id` / `WHAMMING_SESSION` set the name for non-Claude
 agents. Run `whamming --help` for everything.
 
 ## API
@@ -125,8 +136,9 @@ accept requests from the dashboard.
 | `GET` | `/api/sessions/:id/peers` | Same, for a known session |
 | `POST` | `/api/sessions/:id/messages` | `{from, body}`: leave a message |
 | `GET` | `/api/sessions/:id/messages?unread=1&markRead=0` | Read the inbox (marks as read by default) |
-| `POST` | `/api/ports/claim` | `{session, pid?, folder?, port? \| prefer?, purpose?, adopt?}` → `201 {lease}` or `409 {error, conflict}` |
-| `GET` | `/api/ports` | `{leases, unclaimed}` with live listener info |
+| `POST` | `/api/ports/claim` | `{session, pid?, folder?, port? \| prefer?, purpose?, adopt?, wait?, waitMs?}` → `201 {lease}`, `409 {error, conflict}`, or with `wait: true` on a busy port `202 {waiting, position, heldBy}` (repeat the request to keep your place) |
+| `DELETE` | `/api/ports/:port/wait?session=&pid=` | Leave the queue for a port |
+| `GET` | `/api/ports` | `{leases, queues, unclaimed}` with live listener info |
 | `GET` | `/api/ports/:port` | `{state: free \| claimed \| in-use}` |
 | `DELETE` | `/api/ports/:port?session=&pid=` | Release a claim |
 | `DELETE` | `/api/ports?session=&pid=` | Release all of a session's claims |

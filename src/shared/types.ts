@@ -1,4 +1,5 @@
-export const STATUSES = ['waiting', 'working', 'idle', 'done', 'error'] as const;
+/** `waiting` = needs the human; `blocked` = waiting on something else (a port, CI, another agent). */
+export const STATUSES = ['waiting', 'working', 'blocked', 'idle', 'done', 'error'] as const;
 export type SessionStatus = (typeof STATUSES)[number];
 
 export type LinkKind = 'pr' | 'ticket' | 'doc' | 'other';
@@ -62,7 +63,9 @@ export interface Session {
   /** Subagents' work (child rows). */
   tasks?: SubTask[];
   /** Who set the current status: the agent itself, or a Claude Code hook. Hooks never override the agent. */
-  statusSource?: 'agent' | 'hook';
+  statusSource?: 'agent' | 'hook' | 'wait';
+  /** When the current status was entered. */
+  statusSince?: string;
   /** When the agent process was seen to have exited (or its conversation was replaced, e.g. /clear). */
   endedAt?: string;
   createdAt: string;
@@ -98,6 +101,8 @@ export interface PortLease {
   port: number;
   /** Session id that holds the claim. */
   session: string;
+  /** Subagent task key, when a subagent holds it. */
+  task?: string;
   purpose?: string;
   claimedAt: string;
   /** Registered while already in use (the agent started it before claiming). */
@@ -127,8 +132,23 @@ export interface PortLeaseView extends PortLease {
   listener?: PortListener;
 }
 
+export interface PortWaiter {
+  session: string;
+  task?: string;
+  purpose?: string;
+  since: string;
+}
+
+export interface PortQueue {
+  port: number;
+  /** In order: the first one gets the port next. */
+  waiters: PortWaiter[];
+}
+
 export interface PortsSnapshot {
   leases: PortLeaseView[];
+  /** Agents waiting for busy ports (`whamming port claim N --wait`). */
+  queues: PortQueue[];
   /** Listening ports nobody has claimed. */
   unclaimed: PortListener[];
 }

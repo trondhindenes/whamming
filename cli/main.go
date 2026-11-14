@@ -29,8 +29,9 @@ Commands:
   done     [--task KEY]       mark the session (or a subagent task) done
   remove                      remove this session
   list                        all sessions
-  port claim [PORT] [--prefer N] [--purpose P] [--adopt]
+  port claim [PORT] [--prefer N] [--purpose P] [--adopt] [--wait DURATION]
            prints the claimed port, e.g. PG_PORT=$(whamming port claim --prefer 5432 --purpose postgres)
+           --wait 10m: if PORT is busy, queue for it (status "blocked") until it's free or time runs out
   port release PORT... | --all
   port check PORT             free | claimed | in-use (exit 1 unless free)
   ports [--all]               who holds what
@@ -38,7 +39,7 @@ Commands:
   hook                        (for Claude Code hooks) read a hook event on stdin and report it
   version
 
-Statuses: working | waiting | idle | done | error
+Statuses: working | waiting (needs the human) | blocked (waiting on something else) | idle | done | error
 Server: found via WHAMMING_URL / WHAMMING_PORT, else ~/.whamming/status.json (WHAMMING_HOME), else port 4477.
 Env: WHAMMING_SESSION, WHAMMING_TASK, WHAMMING_URL, WHAMMING_PORT, WHAMMING_HOME`
 
@@ -52,6 +53,7 @@ type ctx struct {
 	id     string
 	claude *claudeSession
 	json   bool
+	task   string // subagent task key (--task / WHAMMING_TASK)
 }
 
 func (c *ctx) needID() string {
@@ -143,6 +145,7 @@ func main() {
 	if v, ok := a.get("task"); ok {
 		task = v
 	}
+	c.task = task
 	cmd, rest := a.pos[0], a.pos[1:]
 
 	switch cmd {

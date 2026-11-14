@@ -25,6 +25,8 @@ export function fullTime(iso: string): string {
 export function statusIcon(st: SessionStatus): string {
   const c = `var(--st-${st})`;
   switch (st) {
+    case 'blocked':
+      return `<svg class="st" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.75" fill="none" stroke="${c}" stroke-width="1.5"/><path d="M5.6 4.9v4.2M8.4 4.9v4.2" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/></svg>`;
     case 'waiting':
       return `<svg class="st st-waiting" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.75" fill="none" stroke="${c}" stroke-width="1.5"/><circle class="pulse" cx="7" cy="7" r="2.5" fill="${c}"/></svg>`;
     case 'working':

@@ -20,16 +20,18 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   idle: 'Idle',
   done: 'Done',
   error: 'Error',
+  blocked: 'Blocked',
 };
 const NAV: Array<{ view: 'all' | SessionStatus; label: string }> = [
   { view: 'all', label: 'All sessions' },
   { view: 'waiting', label: 'Waiting for you' },
   { view: 'working', label: 'Working' },
   { view: 'idle', label: 'Idle' },
+  { view: 'blocked', label: 'Blocked' },
   { view: 'error', label: 'Error' },
   { view: 'done', label: 'Done' },
 ];
-const GROUP_ORDER: SessionStatus[] = ['waiting', 'error', 'working', 'idle', 'done'];
+const GROUP_ORDER: SessionStatus[] = ['waiting', 'error', 'working', 'blocked', 'idle', 'done'];
 
 const state = {
   sessions: [] as SessionView[],
@@ -40,7 +42,7 @@ const state = {
   selectedId: null as string | null,
   detail: null as (SessionView & { peers: Peer[]; messages: Message[] }) | null,
   connected: false,
-  ports: { leases: [], unclaimed: [] } as PortsSnapshot,
+  ports: { leases: [], unclaimed: [], queues: [] } as PortsSnapshot,
   showAllListeners: false,
   /** Sessions whose subagent rows are folded away. */
   collapsed: new Set<string>(JSON.parse(localStorage.getItem('collapsed') ?? '[]') as string[]),
@@ -300,10 +302,12 @@ function portMatches(...fields: Array<string | number | undefined>): boolean {
   return !q || fields.join(' ').toLowerCase().includes(q);
 }
 
-function sessionRef(id?: string): string {
+function sessionRef(id?: string, task?: string): string {
   if (!id) return '<span class="muted">—</span>';
   const s = state.sessions.find((x) => x.id === id);
-  return `<button class="session-ref" data-select="${esc(id)}">${s ? statusIcon(s.status) : ''}<span>${esc(id)}</span></button>`;
+  const t = task ? s?.tasks?.find((x) => x.key === task) : undefined;
+  const icon = t ? statusIcon(t.status) : s ? statusIcon(s.status) : '';
+  return `<button class="session-ref" data-select="${esc(id)}">${icon}<span>${esc(id)}${task ? ` <span class="muted">› ${esc(task)}</span>` : ''}</span></button>`;
 }
 
 function leaseState(l: PortLeaseView): string {
@@ -337,7 +341,7 @@ function renderPorts() {
       (l) => `<div class="prow ${l.ownerAlive ? '' : 'stale'}">
       <span class="pnum">:${l.port}</span>
       <span class="ppurpose">${esc(l.purpose ?? '')}${l.adopted ? ' <span class="tag" title="Registered after it was already running">adopted</span>' : ''}</span>
-      ${sessionRef(l.session)}
+      ${sessionRef(l.session, l.task)}
       <span class="pfolder" title="${esc(l.folder ?? '')}">${esc(l.folderName ?? '')}</span>
       ${leaseState(l)}
       <span class="row-time" title="${esc(fullTime(l.claimedAt))}">${ago(l.claimedAt)}</span>
@@ -361,8 +365,32 @@ function renderPorts() {
     )
     .join('');
 
+  const holderOf = (port: number) => {
+    const l = state.ports.leases.find((x) => x.port === port && x.ownerAlive);
+    if (l) return `held by ${esc(l.session)}${l.task ? ` › ${esc(l.task)}` : ''}`;
+    const u = state.ports.unclaimed.find((x) => x.port === port);
+    return u ? `held by ${u.container ? `container ${esc(u.container)}` : esc(u.command)}${u.session ? '' : ', not by an agent'}` : 'about to be granted';
+  };
+  const queueRows = (state.ports.queues ?? [])
+    .filter((q) => portMatches(q.port, ...q.waiters.map((w) => `${w.session} ${w.purpose ?? ''}`)))
+    .map(
+      (q) => `<div class="prow queued">
+      <span class="pnum">:${q.port}</span>
+      <span class="ppurpose">${q.waiters.map((w, i) => `${i + 1}. ${esc(w.session)}${w.task ? ` › ${esc(w.task)}` : ''}${w.purpose ? ` <span class="muted">(${esc(w.purpose)})</span>` : ''}`).join(' &nbsp;')}</span>
+      ${sessionRef(q.waiters[0]?.session, q.waiters[0]?.task)}
+      <span class="pfolder">${holderOf(q.port)}</span>
+      <span class="pstate blocked">${q.waiters.length} waiting</span>
+      <span class="row-time" title="${esc(fullTime(q.waiters[0].since))}">${ago(q.waiters[0].since)}</span><span></span>
+    </div>`,
+    )
+    .join('');
+
   const hidden = state.showAllListeners ? 0 : others.length;
-  $('list').innerHTML = `
+  $('list').innerHTML = `${
+    queueRows
+      ? `<div class="group"><div class="group-head">${statusIcon('blocked')}<span>Waiting for a port</span><span class="n">${state.ports.queues.length}</span></div>${queueRows}</div>`
+      : ''
+  }
     <div class="group">
       <div class="group-head">${portSvg}<span>Claimed</span><span class="n">${leases.length}</span></div>
       ${leaseRows || `<div class="pempty">No claimed ports. Agents claim with <code>whamming port claim --prefer 5432 --purpose postgres</code>.</div>`}
@@ -471,8 +499,10 @@ function renderDetail() {
       <h1 class="detail-title">${esc(d.title || 'No task reported')}</h1>
       ${
         d.detail
-          ? d.status === 'waiting' || d.status === 'error'
-            ? `<div class="callout"><span class="callout-label">${d.status === 'waiting' ? 'Needs your input' : 'Error'}</span>${esc(d.detail)}</div>`
+          ? d.status === 'waiting' || d.status === 'error' || d.status === 'blocked'
+            ? `<div class="callout ${d.status === 'blocked' ? 'blocked' : ''}"><span class="callout-label">${
+                d.status === 'waiting' ? 'Needs your input' : d.status === 'blocked' ? 'Blocked' : 'Error'
+              }</span>${esc(d.detail)}</div>`
             : `<p class="detail-text">${esc(d.detail)}</p>`
           : ''
       }
