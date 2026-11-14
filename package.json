@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "demo": "node scripts/demo.mjs",
     "icons": "electron scripts/render-icons.cjs",
-    "package": "node build.mjs && node scripts/package.mjs"
+    "package": "node build.mjs && node scripts/package.mjs",
+    "install-mac": "node scripts/install-mac.mjs"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",

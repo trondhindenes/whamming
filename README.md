@@ -49,12 +49,14 @@ Requirements: macOS, Node.js 20+, Go 1.24+ (to build the CLI), and Claude Code.
 git clone https://github.com/trondhindenes/whamming.git
 cd whamming
 npm install
-npm run package                       # builds release/Whamming-darwin-<arch>/Whamming.app
-open release/Whamming-darwin-*/Whamming.app
+npm run install-mac -- --open        # build, install into /Applications, launch
 ```
 
-Copy `Whamming.app` to `/Applications` if you like. The build is signed ad hoc for your own machine; it isn't
-notarized for distribution.
+`install-mac` builds `release/Whamming-darwin-<arch>/Whamming.app` and copies it to `/Applications` (or
+`~/Applications` if that isn't writable). `--no-build` installs the last build as is. It refuses while
+Whamming is running (quit it first), only ever replaces a bundle whose id is `app.whamming.desktop`, and if
+the CLI link points at another copy of the app, it moves the link to the installed one. Re-run it to update.
+The build is signed ad hoc for your own machine; it isn't notarized for distribution.
 
 Then open **Agent setup** (bottom left in the dashboard) and follow the three steps:
 
