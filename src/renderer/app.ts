@@ -167,6 +167,56 @@ let visibleOrder: string[] = [];
 function render() {
   renderSidebar();
   renderList();
+  if (!$('cleanup-menu').hidden) renderCleanupMenu();
+}
+
+// ---------- cleanup menu ----------
+
+/** Which destructive menu item has been clicked once and waits for the confirming click. */
+let cleanupArmed: string | null = null;
+let cleanupArmTimer: number | undefined;
+
+function renderCleanupMenu() {
+  const exited = state.sessions.filter((s) => s.alive === false).length;
+  const all = state.sessions.length;
+  const armed = cleanupArmed === 'all';
+  $('cleanup-menu').innerHTML = `
+    <button class="menu-item" role="menuitem" data-clean="exited" ${exited ? '' : 'disabled'}>
+      <span class="what">Remove exited sessions</span><span class="n">${exited}</span>
+      <span class="hint">${exited ? 'Sessions whose agent process has ended.' : 'No exited sessions right now.'}</span>
+    </button>
+    <button class="menu-item danger ${armed ? 'armed' : ''}" role="menuitem" data-clean="all" ${all ? '' : 'disabled'}>
+      <span class="what">${armed ? 'Click again to remove everything' : 'Remove all sessions'}</span><span class="n">${all}</span>
+      <span class="hint">Running agents come back the next time they report, without their history, port claims or unread messages.</span>
+    </button>`;
+}
+
+function toggleCleanupMenu(open: boolean) {
+  clearTimeout(cleanupArmTimer);
+  cleanupArmed = null;
+  $('cleanup-menu').hidden = !open;
+  $('cleanup-btn').setAttribute('aria-expanded', String(open));
+  if (open) renderCleanupMenu();
+}
+
+async function cleanUp(which: 'exited' | 'all') {
+  if (which === 'all' && cleanupArmed !== 'all') {
+    cleanupArmed = 'all';
+    renderCleanupMenu();
+    clearTimeout(cleanupArmTimer);
+    cleanupArmTimer = window.setTimeout(() => {
+      cleanupArmed = null;
+      if (!$('cleanup-menu').hidden) renderCleanupMenu();
+    }, 3000);
+    return;
+  }
+  toggleCleanupMenu(false);
+  try {
+    const { removed } = await api<{ removed: number }>(`/api/sessions?which=${which}`, { method: 'DELETE' });
+    toast(removed ? `Removed ${plural(removed, which === 'exited' ? 'exited session' : 'session')}` : 'Nothing to remove');
+  } catch (err: any) {
+    toast(err.message);
+  }
 }
 
 function renderSidebar() {
@@ -800,6 +850,14 @@ function closeSetup() {
 document.addEventListener('click', async (e) => {
   const t = e.target as HTMLElement;
 
+  const clean = t.closest<HTMLButtonElement>('[data-clean]');
+  if (clean) return cleanUp(clean.dataset.clean as 'exited' | 'all');
+  if (t.closest('#cleanup-btn')) return toggleCleanupMenu(!!$('cleanup-menu').hidden);
+  if (!$('cleanup-menu').hidden) {
+    toggleCleanupMenu(false);
+    if (t.closest('#cleanup-menu')) return;
+  }
+
   const nav = t.closest<HTMLElement>('[data-view]');
   if (nav) {
     state.view = nav.dataset.view as View;
@@ -901,6 +959,7 @@ document.addEventListener('submit', async (e) => {
 document.addEventListener('keydown', (e) => {
   const inField = (e.target as HTMLElement).closest('input, textarea');
   if (e.key === 'Escape') {
+    if (!$('cleanup-menu').hidden) return toggleCleanupMenu(false);
     if (!$('modal').hidden) return closeSetup();
     if (inField) return (e.target as HTMLElement).blur();
     return select(null);

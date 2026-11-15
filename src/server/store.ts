@@ -539,6 +539,19 @@ export class Store extends EventEmitter {
     return n;
   }
 
+  /**
+   * Bulk cleanup. "exited": every session whose process has ended, whatever it last reported.
+   * "all": every session; the ones still running reappear the next time they report (hook or `update`),
+   * without their history, port claims or unread messages.
+   */
+  clear(which: 'exited' | 'all'): string[] {
+    const ids = [...this.sessions.values()]
+      .filter((s) => which === 'all' || !!s.endedAt || (s.pid !== undefined && !isAlive(s.pid)))
+      .map((s) => s.id);
+    for (const id of ids) this.remove(id);
+    return ids;
+  }
+
   peers(folder: string, excludeId?: string, excludePid?: number): Peer[] {
     const f = normalizeFolder(folder);
     const out: Peer[] = [];

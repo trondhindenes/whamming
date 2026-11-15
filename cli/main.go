@@ -30,6 +30,8 @@ Commands:
   done     [--task KEY]       mark the session (or a subagent task) done
   remove                      remove this session
   list                        all sessions
+  clean    [--all]            remove every session whose process has exited; --all removes every
+                              session (running ones come back the next time they report)
   port claim [PORT] [--prefer N] [--purpose P] [--adopt] [--wait DURATION]
            prints the claimed port, e.g. PG_PORT=$(whamming port claim --prefer 5432 --purpose postgres)
            --wait 10m: if PORT is busy, queue for it (status "blocked") until it's free or time runs out
@@ -306,6 +308,21 @@ func main() {
 		id := c.needID()
 		c.do("DELETE", "/api/sessions/"+id+c.pidQS("?"), nil, nil)
 		fmt.Println("removed " + c.id)
+
+	case "clean":
+		which, what := "exited", "exited session"
+		if a.bools["all"] {
+			which, what = "all", "session"
+		}
+		var r struct {
+			Removed int      `json:"removed"`
+			IDs     []string `json:"ids"`
+		}
+		c.do("DELETE", "/api/sessions?which="+which, nil, &r)
+		if r.Removed != 1 {
+			what += "s"
+		}
+		c.print(r, fmt.Sprintf("removed %d %s", r.Removed, what))
 
 	case "list":
 		var r struct {

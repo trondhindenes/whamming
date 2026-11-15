@@ -353,6 +353,12 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
           return send(res, r.created ? 201 : 200, { session: store.view(r.session, true), ...(r.warning && { warning: r.warning }) });
         }
         if (method === 'DELETE') {
+          const which = url.searchParams.get('which');
+          if (which !== null) {
+            if (which !== 'exited' && which !== 'all') throw new ValidationError('which must be "exited" or "all"');
+            const ids = store.clear(which);
+            return send(res, 200, { removed: ids.length, ids });
+          }
           const n = store.prune(url.searchParams.has('olderThanHours') ? Number(url.searchParams.get('olderThanHours')) * 3600_000 : undefined);
           return send(res, 200, { removed: n });
         }

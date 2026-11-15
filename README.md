@@ -114,6 +114,7 @@ whamming whoami                                    # resolved session name and p
 whamming update --title "Fix login redirect loop" --link https://linear.app/acme/issue/ENG-42
 whamming update --status waiting --detail "Mock Stripe or keep the sandbox?"
 whamming done
+whamming clean                                     # remove every exited session (--all: every session; running ones report back in)
 whamming update --task review-auth --title "Review auth middleware"   # a subagent's child row
 whamming peers                                     # who else works in this folder
 whamming send <session> "heads up: I'm editing src/payments"
@@ -142,6 +143,7 @@ accept requests from the dashboard.
 | `GET` | `/api/sessions/:id` | One session, with its activity log |
 | `DELETE` | `/api/sessions/:id` | Remove |
 | `DELETE` | `/api/sessions?olderThanHours=` | Prune finished (and old) sessions |
+| `DELETE` | `/api/sessions?which=exited\|all` | Clean up: sessions whose process has ended, or every session (running ones reappear when they next report) |
 | `POST` | `/api/sessions/:id/heartbeat` | Bump `updatedAt` |
 | `PUT`/`PATCH` | `/api/sessions/:id/tasks/:key` | A subagent's child row: `{title?, status?, detail?, links?, note?}` |
 | `DELETE` | `/api/sessions/:id/tasks/:key` | Remove a child row |
