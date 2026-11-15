@@ -3,12 +3,12 @@ import { readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
-import { DeadlockError, PortConflict, Store, ValidationError, type SessionPatch } from './store';
+import { DeadlockError, HOOK_AGENTS, PortConflict, Store, ValidationError, type SessionPatch } from './store';
 import { attribute, invalidateListeners, isClaudeProcess, isPortFree, listContainerPorts, listListeners, processParents } from './ports';
 import type { PortListener, PortsSnapshot } from '../shared/types';
 import { DATA_DIR } from './paths';
 import { VERSION } from './status';
-import { CLI_LINK, cliStatus, hooksPreview, hooksStatus, installCli, installHooks, uninstallHooks } from './setup';
+import { CLI_LINK, cliStatus, hooksPreview, hooksStatus, installCli, installHooks, installPiExtension, piStatus, uninstallHooks, uninstallPiExtension } from './setup';
 
 export const DEFAULT_PORT = Number(process.env.WHAMMING_PORT) || 4477;
 export const HOST = '127.0.0.1';
@@ -53,7 +53,8 @@ async function readJson(req: IncomingMessage): Promise<any> {
 
 function pickPatch(body: any): SessionPatch {
   const p: SessionPatch = {};
-  for (const k of ['name', 'folder', 'branch', 'agent', 'status', 'title', 'detail', 'note', 'claudeSessionId', 'nameSource'] as const) {
+  if (body.conversationId === undefined && body.claudeSessionId !== undefined) body.conversationId = body.claudeSessionId; // older CLIs
+  for (const k of ['name', 'folder', 'branch', 'agent', 'status', 'title', 'detail', 'note', 'conversationId', 'nameSource'] as const) {
     if (body[k] !== undefined) {
       if (body[k] !== null && typeof body[k] !== 'string') throw new ValidationError(`${k} must be a string`);
       (p as any)[k] = body[k] ?? '';
@@ -121,7 +122,7 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
     for (const v of live) if (v.pid) sessionByPid.set(v.pid, v.id);
     const byPort = new Map<number, PortListener>();
     for (const l of ls) {
-      if (byPort.has(l.port) || isClaudeProcess(l.pid)) continue;
+      if (byPort.has(l.port) || isClaudeProcess(l.pid) || sessionByPid.has(l.pid)) continue; // the agent's own plumbing
       byPort.set(l.port, { ...l, session: attribute(l.pid, parents, sessionByPid) });
     }
     for (const c of containers) {
@@ -158,13 +159,13 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
   function sessionFor(body: any): string {
     const pid = body.pid ? Number(body.pid) : undefined;
     if (pid) {
-      const mine = store.findByPid(pid, body.claudeSessionId);
+      const mine = store.findByPid(pid, body.conversationId);
       if (mine) return mine.id;
     }
     if (typeof body.session !== 'string' || !body.session) throw new ValidationError('session is required');
     if (!pid && store.get(body.session)) return body.session;
-    const { folder, branch, agent, claudeSessionId, nameSource } = body;
-    return store.upsert(body.session, pickPatch({ folder, branch, agent, claudeSessionId, nameSource, pid })).session.id;
+    const { folder, branch, agent, conversationId, nameSource } = body;
+    return store.upsert(body.session, pickPatch({ folder, branch, agent, conversationId, nameSource, pid })).session.id;
   }
 
   async function conflictBody(err: PortConflict) {
@@ -205,7 +206,7 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
     if (resource === 'info' && method === 'GET') return send(res, 200, { cliPath: cliPath() });
 
     if (resource === 'setup') {
-      // Changing ~/.claude/settings.json or ~/.local/bin is only for the dashboard UI, not for agents with curl.
+      // Changing ~/.claude/settings.json, ~/.pi/agent/extensions or ~/.local/bin is only for the dashboard UI, not for agents with curl.
       if (method !== 'GET' && origin !== `http://${HOST}:${port}` && origin !== `http://localhost:${port}`) {
         throw new HttpError(403, 'setup changes can only be made from the Whamming dashboard');
       }
@@ -216,8 +217,10 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
         } catch (err: any) {
           hooks = { error: err.message };
         }
-        return send(res, 200, { cli: cliStatus(bundledCli), hooks, cliPath: cliPath() });
+        return send(res, 200, { cli: cliStatus(bundledCli), hooks, pi: piStatus(bundledCli), cliPath: cliPath() });
       }
+      if (rawId === 'pi' && method === 'POST') return send(res, 200, { pi: installPiExtension(bundledCli) });
+      if (rawId === 'pi' && method === 'DELETE') return send(res, 200, { pi: uninstallPiExtension(bundledCli) });
       if (rawId === 'cli' && method === 'POST') return send(res, 200, { cli: installCli(bundledCli, { force: !!(await readJson(req)).force }) });
       if (rawId === 'hooks' && sub === 'preview' && method === 'GET') return send(res, 200, { add: hooksPreview(), status: hooksStatus() });
       if (rawId === 'hooks' && method === 'POST') {
@@ -309,15 +312,16 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
       }
     }
 
-    if (resource === 'hooks' && rawId === 'claude' && method === 'POST') {
+    if (resource === 'hooks' && rawId && Object.hasOwn(HOOK_AGENTS, rawId) && method === 'POST') {
       const b = await readJson(req);
       const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
       const s = store.applyHook({
+        agent: HOOK_AGENTS[rawId as keyof typeof HOOK_AGENTS],
         event: String(b.event ?? ''),
         name: String(b.name ?? ''),
         nameSource: str(b.nameSource),
         pid: Number(b.pid),
-        claudeSessionId: String(b.claudeSessionId ?? ''),
+        conversationId: String(b.conversationId ?? b.claudeSessionId ?? ''),
         cwd: String(b.cwd ?? ''),
         branch: str(b.branch),
         prompt: str(b.prompt),
@@ -337,9 +341,10 @@ export function createApi(store: Store, { staticDir, bundledCli = null }: ApiOpt
     if (resource === 'sessions') {
       if (!id) {
         if (method === 'GET') {
-          return send(res, 200, {
-            sessions: store.list({ folder: url.searchParams.get('folder') ?? undefined, status: url.searchParams.get('status') ?? undefined }),
-          });
+          const conversation = url.searchParams.get('conversation');
+          let sessions = store.list({ folder: url.searchParams.get('folder') ?? undefined, status: url.searchParams.get('status') ?? undefined });
+          if (conversation) sessions = sessions.filter((s) => s.conversationId === conversation);
+          return send(res, 200, { sessions });
         }
         if (method === 'POST') {
           const body = await readJson(req);

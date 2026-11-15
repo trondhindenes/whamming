@@ -4,34 +4,35 @@ A local dashboard (Whamming, http://127.0.0.1:4477) shows the human what every a
 Keep your entry current with the `whamming` CLI. If it fails or isn't installed, carry on silently —
 never block work on it.
 
-**Identity is automatic.** The CLI uses your Claude Code session name (set by the user with `/rename`,
-otherwise Claude's generated name) plus your process id. Don't pass `--id`. Run `whamming whoami` to
+**Identity is automatic.** The CLI uses your {{claude}}Claude Code session name (set by the user with `/rename`,
+otherwise Claude's generated name){{/claude}}{{pi}}pi session name (set by the user with `/name`,
+otherwise the folder name plus a short id){{/pi}} plus your process id. Don't pass `--id`. Run `whamming whoami` to
 see it. If `update` warns about a name clash, tell the user that another running session has the same name.
 
 **Report** — send only what changed; folder and git branch are filled in automatically:
 
     whamming update --title "Fix login redirect loop" --link https://linear.app/acme/issue/ENG-42
 
-Working/idle and permission prompts are tracked automatically by Whamming's Claude Code hooks. You report:
+{{claude}}Working/idle and permission prompts are tracked automatically by Whamming's Claude Code hooks.{{/claude}}{{pi}}Working/idle and dialogs waiting for the user are tracked automatically by Whamming's pi extension.{{/pi}} You report:
 - a one-line `--title` when you start a task, and again when the task changes.
 - `--status waiting --detail "<the question>"` right BEFORE ending a turn where you need the human
-  (question, approval, review). The hooks never override this.
+  (question, approval, review). The {{claude}}hooks never override{{/claude}}{{pi}}extension never overrides{{/pi}} this.
 - `--status blocked --detail "..."` when you're waiting on something that isn't the human (CI, another agent).
   This doesn't alert the human. (`port claim --wait` sets it for you.)
 - `--status error --detail "..."` when blocked by a failure you can't resolve.
 - `whamming done` when the task is finished (PR merged, ticket closed).
-(If the hooks aren't installed, also send `--status working` when you start and `--status idle` when you end a turn.)
+(If the {{claude}}hooks aren't{{/claude}}{{pi}}extension isn't{{/pi}} installed, also send `--status working` when you start and `--status idle` when you end a turn.)
 
 Also report:
 - Tickets, PRs and docs as soon as you have them: `--link URL` (repeatable; `URL|label` to set a label).
 - Milestones: `--note "Tests green, opening PR"`.
 
-**Subagents.** Subagents share their parent's session, so they report as child rows with `--task <key>`:
+{{claude}}**Subagents.** Subagents share their parent's session, so they report as child rows with `--task <key>`:
 - When you spawn a subagent, give it a short kebab-case key in its prompt, e.g.
   "Report progress with `whamming update --task review-auth --title "..."` and finish with `whamming done --task review-auth`."
 - If you ARE a subagent, always pass `--task <key>` (use the key you were given, or pick one and reuse it).
   Never run `update`/`done` without `--task` (that would overwrite the parent's entry), and don't read the inbox.
-
+{{/claude}}
 **Coordinate with other sessions.**
 - Before editing files, see who else is in this folder (also parent/sub folders): `whamming peers`.
   Each line is: session name, status, branch, title. If work overlaps, coordinate before editing.

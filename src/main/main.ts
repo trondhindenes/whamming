@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { createApi, DEFAULT_PORT, findBundledCli, HOST } from '../server/api';
 import { removeStatus, startOrReuse } from '../server/status';
-import { refreshCliLink } from '../server/setup';
+import { refreshCliLink, refreshPiLink } from '../server/setup';
 import { STATE_FILE } from '../server/paths';
 import { Store } from '../server/store';
 import type { SessionStatus, SessionView } from '../shared/types';
@@ -143,6 +143,7 @@ app.whenReady().then(async () => {
   const bundledCli = app.isPackaged ? (existsSync(packagedCli) ? packagedCli : null) : findBundledCli(join(__dirname, '..'));
   try {
     refreshCliLink(bundledCli); // the app moved or updated: keep ~/.local/bin/whamming pointing at it
+    refreshPiLink(bundledCli); // same for ~/.pi/agent/extensions/whamming.js
   } catch (err) {
     console.error('[whamming] could not refresh CLI link:', err);
   }

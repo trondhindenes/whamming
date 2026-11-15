@@ -9,7 +9,7 @@ import {
   type SessionView,
   type SubTask,
 } from '../shared/types';
-import { ago, chip, esc, exitedSvg, fullTime, copyText, installTooltips, isExited, safeUrl, statusIcon, toast } from './ui';
+import { agentIcon, agentLabel, ago, chip, esc, exitedSvg, fullTime, copyText, installTooltips, isExited, safeUrl, statusIcon, toast } from './ui';
 
 type View = 'all' | SessionStatus | 'ports';
 type GroupBy = 'status' | 'folder';
@@ -275,7 +275,7 @@ function row(s: SessionView): string {
   const sub = s.status === 'waiting' && s.detail ? s.detail : s.name !== s.title ? s.name : '';
   return `<div class="row ${isExited(s) ? 'exited' : s.status} ${s.stale || s.alive === false ? 'stale' : ''} ${s.id === state.selectedId ? 'selected' : ''}" data-id="${esc(s.id)}">
     ${isExited(s) ? exitedSvg : statusIcon(s.status)}
-    <div class="row-folder" title="Folder: ${esc(s.folder)}">${esc(s.folderName)}</div>
+    <div class="row-folder">${agentIcon(s.agent)}<span title="Folder: ${esc(s.folder)}">${esc(s.folderName)}</span></div>
     <div class="row-main">
       <span class="row-title ${s.title ? '' : 'empty'}" data-tip="${esc(s.title || "The agent hasn't reported what it's working on yet")}">${esc(s.title || 'No task reported')}</span>
       <span class="row-detail">${esc(sub)}</span>
@@ -526,7 +526,7 @@ function renderDetail() {
         }
         <dt>Folder</dt><dd><span class="mono copyable" data-copy="${esc(d.folder)}" title="Copy path">${esc(d.folder)}</span></dd>
         ${d.branch ? `<dt>Branch</dt><dd><span class="mono copyable" data-copy="${esc(d.branch)}" title="Copy branch name">${esc(d.branch)}</span></dd>` : ''}
-        ${d.agent ? `<dt>Agent</dt><dd>${esc(d.agent)}</dd>` : ''}
+        ${d.agent ? `<dt>Agent</dt><dd>${agentIcon(d.agent)} ${esc(agentLabel(d.agent))}</dd>` : ''}
         <dt>Started</dt><dd>${esc(fullTime(d.createdAt))}</dd>
         <dt>Updated</dt><dd>${esc(fullTime(d.updatedAt))} <span class="muted">· ${ago(d.updatedAt)} ago</span></dd>
       </dl>
@@ -637,7 +637,19 @@ function move(delta: number) {
 interface SetupState {
   cli: { bundled: string | null; link: string; installed: boolean; conflict: string | null };
   hooks: { settingsFile: string; command: string; installed: string[]; missing: string[]; others: Record<string, number> } | { error: string };
+  pi: { found: boolean; dir: string; bundled: string | null; link: string; installed: boolean; conflict: string | null; agentsFile: string };
   cliPath: string | null;
+}
+
+type AgentKind = 'claude' | 'pi';
+
+/** The instructions contain {{claude}}…{{/claude}} and {{pi}}…{{/pi}} parts; keep the one for this agent. */
+function forAgent(md: string, agent: AgentKind): string {
+  const other = agent === 'claude' ? 'pi' : 'claude';
+  return md
+    .replace(new RegExp(`\\{\\{${other}\\}\\}[\\s\\S]*?\\{\\{/${other}\\}\\}`, 'g'), '')
+    .replace(new RegExp(`\\{\\{/?${agent}\\}\\}`, 'g'), '')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 /** Point every CLI invocation in the instructions at the installed/bundled binary. */
@@ -659,6 +671,7 @@ async function openSetup() {
   let setup: SetupState | null = null;
   let reviewing = false;
   let busy = false;
+  let instructionsFor: AgentKind = 'claude';
 
   const load = async () => {
     try {
@@ -688,9 +701,23 @@ async function openSetup() {
 
   const draw = () => {
     if (!setup) return;
-    const { cli, hooks } = setup;
+    const { cli, hooks, pi } = setup;
     const hooksOk = !('error' in hooks) && hooks.missing.length === 0;
-    const snippet = withCli(raw, setup.cliPath);
+    const snippet = withCli(forAgent(raw, instructionsFor), setup.cliPath);
+    const contextFile = instructionsFor === 'pi' ? tilde(pi.agentsFile) : '~/.claude/CLAUDE.md';
+
+    const piStep = !pi.bundled
+      ? `<p class="muted">This build has no bundled pi extension.</p>`
+      : pi.installed
+        ? `<p class="setup-ok">${check}<span>Installed at <code>${esc(tilde(pi.link))}</code>. New pi sessions report working, idle, and dialogs waiting for you;
+             running sessions pick it up after <code>/reload</code>.</span></p>
+           <div class="setup-actions"><button class="btn" data-setup="pi-remove">Remove extension</button></div>`
+        : `<p>For the <a href="https://pi.dev" target="_blank">pi</a> coding agent: links a small extension into
+             <code>${esc(tilde(pi.dir))}/extensions/</code> that tells Whamming when a pi session starts, works, waits for you, goes idle and ends.
+             It prints nothing and gives up after 0.8 s if Whamming isn't running.</p>
+           ${pi.conflict ? `<p class="setup-warn">${esc(tilde(pi.conflict))}.</p>` : ''}
+           ${pi.found ? '' : `<p class="muted">pi doesn't seem to be set up on this machine (no <code>${esc(tilde(pi.dir))}</code>). Run pi once, then come back.</p>`}
+           <button class="btn ${pi.found ? 'primary' : ''}" data-setup="pi" ${pi.found ? '' : 'disabled'}>Install pi extension</button>`;
 
     const cliStep = !cli.bundled
       ? `<p class="muted">This build has no bundled CLI (Go wasn't available when it was built).</p>`
@@ -724,13 +751,24 @@ async function openSetup() {
       <ol class="setup-steps">
         <li class="${cli.installed ? 'done' : ''}"><h3>Command line tool</h3>${cliStep}</li>
         <li class="${hooksOk ? 'done' : ''}"><h3>Claude Code hooks</h3>${hooksStep}</li>
+        <li class="${pi.installed ? 'done' : ''}"><h3>pi extension <span class="muted">(optional)</span></h3>${piStep}</li>
         <li><h3>Agent instructions</h3>
-          <p>Paste into your global agent context (e.g. <code>~/.claude/CLAUDE.md</code>) so agents report titles, questions, links and ports, and coordinate with each other.</p>
+          <div class="segmented setup-agent" role="tablist">
+            <button data-instructions="claude" class="${instructionsFor === 'claude' ? 'active' : ''}" title="Instructions for Claude Code">Claude Code</button>
+            <button data-instructions="pi" class="${instructionsFor === 'pi' ? 'active' : ''}" title="Instructions for pi">pi</button>
+          </div>
+          <p>Paste into your global agent context, <code>${esc(contextFile)}</code>, so agents report titles, questions, links and ports, and coordinate with each other.</p>
           <div class="code-wrap"><pre>${esc(snippet)}</pre><button class="btn" data-copy-snippet>Copy</button></div>
         </li>
       </ol>
       <p class="muted">API: <code>${esc(location.origin)}/api</code></p>`;
 
+    body.querySelectorAll<HTMLButtonElement>('[data-instructions]').forEach((b) =>
+      b.addEventListener('click', () => {
+        instructionsFor = b.dataset.instructions as AgentKind;
+        draw();
+      }),
+    );
     body.querySelector('[data-copy-snippet]')!.addEventListener('click', () => {
       void copyText(snippet);
       toast('Copied agent instructions');
@@ -743,6 +781,8 @@ async function openSetup() {
         if (what === 'hooks-cancel') return ((reviewing = false), draw());
         if (what === 'hooks-install') return act(() => api('/api/setup/hooks', { method: 'POST', body: '{}' }), 'Hooks installed: takes effect in new Claude sessions');
         if (what === 'hooks-remove') return act(() => api('/api/setup/hooks', { method: 'DELETE' }), 'Hooks removed');
+        if (what === 'pi') return act(() => api('/api/setup/pi', { method: 'POST', body: '{}' }), 'pi extension installed: takes effect in new pi sessions');
+        if (what === 'pi-remove') return act(() => api('/api/setup/pi', { method: 'DELETE' }), 'pi extension removed');
       }),
     );
   };

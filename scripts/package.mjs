@@ -18,8 +18,8 @@ const [out] = await packager({
   asar: true,
   prune: true,
   // Ship only what runs: the built bundle, icons and package.json.
-  // The CLI binary goes next to app.asar (executables can't run from inside the archive).
-  extraResource: ['dist/cli/whamming'],
+  // The CLI binary and the pi extension go next to app.asar (executables can't run from inside the archive).
+  extraResource: ['dist/cli/whamming', 'dist/cli/whamming-pi.js'],
   ignore: [/^\/(src|scripts|docs|bin|cli|release|\.git|\.claude)(\/|$)/, /^\/dist\/cli(\/|$)/, /^\/(tsconfig\.json|build\.mjs|README\.md|\.gitignore)$/, /\.map$/],
 });
 

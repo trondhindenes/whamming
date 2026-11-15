@@ -1,6 +1,6 @@
 # Whamming (What am I working on?)
 
-**See what all your Claude Code sessions are working on, at a glance.**
+**See what all your Claude Code (and pi) sessions are working on, at a glance.**
 
 When you have several Claude Code sessions going at once, across repos and tickets, it's easy to lose track of
 which one is waiting for you, what each is doing, and which PR belongs to which. Whamming is a small local
@@ -8,10 +8,10 @@ dashboard that answers that: folder, status (working, waiting for you, idle, err
 the tickets and PRs involved. Agents can also find each other, message each other, and claim ports so
 parallel sessions don't fight over `5432`.
 
-> **Prototype.** Whamming is an early, macOS-only prototype built around **Claude Code**. It relies on
-> Claude Code hooks and on reading Claude Code's own session files (`~/.claude/sessions/*.json`, an internal
-> format that may change). The HTTP API is generic, so other agents can report too, but only Claude Code is
-> set up out of the box. Expect rough edges and breaking changes.
+> **Prototype.** Whamming is an early, macOS-only prototype built around **Claude Code**, with support for
+> the [pi](https://pi.dev) coding agent too. For Claude it relies on hooks and on reading Claude Code's own
+> session files (`~/.claude/sessions/*.json`, an internal format that may change); for pi, on a small pi
+> extension. The HTTP API is generic, so other agents can report too. Expect rough edges and breaking changes.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -25,6 +25,7 @@ parallel sessions don't fight over `5432`.
   Dock badge, notifications when an agent starts waiting or hits an error, and a Dock menu to jump to a session.
 - **Automatic status** through Claude Code hooks: working, idle and permission prompts are tracked without the
   agent having to remember. Agents add titles, questions, and links to tickets and PRs.
+- **Claude Code and pi**: a small mark next to each session shows which agent it runs in.
 - **Subagents** show up as child rows under the session that spawned them.
 - **Coordination**: agents can ask who else works in the same folder, and leave each other messages.
 - **Port claims**: agents ask Whamming for a port before binding one, checked against other agents'
@@ -58,33 +59,43 @@ Whamming is running (quit it first), only ever replaces a bundle whose id is `ap
 the CLI link points at another copy of the app, it moves the link to the installed one. Re-run it to update.
 The build is signed ad hoc for your own machine; it isn't notarized for distribution.
 
-Then open **Agent setup** (bottom left in the dashboard) and follow the three steps:
+Then open **Agent setup** (bottom left in the dashboard) and follow the steps:
 
 1. **Install the command line tool.** Links `~/.local/bin/whamming` to the CLI inside the app. The link follows
    the app if you move or update it.
 2. **Install the Claude Code hooks.** Shows exactly what will be added to `~/.claude/settings.json` before
    changing anything, keeps your existing hooks, and saves a backup first. The hook prints nothing, never
    fails, and gives up after 0.8 s if Whamming isn't running. *Remove* takes them out again.
-3. **Add the agent instructions** to your global `~/.claude/CLAUDE.md`, so agents report titles, questions,
-   links, ports and subagents, and check for other sessions in the same folder.
+3. **Install the pi extension** (optional, if you use [pi](https://pi.dev)). Links a small extension into
+   `~/.pi/agent/extensions/` that reports when a pi session starts, works, shows a dialog waiting for you,
+   goes idle and ends. Like the hooks, it prints nothing and gives up after 0.8 s if Whamming isn't running.
+4. **Add the agent instructions** to your global `~/.claude/CLAUDE.md` (Claude Code) or `~/.pi/agent/AGENTS.md`
+   (pi), so agents report titles, questions, links, ports and subagents, and check for other sessions in the
+   same folder.
 
-New Claude Code sessions show up automatically from then on.
+New Claude Code and pi sessions show up automatically from then on.
 
 ## How it works
 
 ```
-Claude Code ──hooks──▶ whamming hook ─┐
-     │                                 ├──▶ Whamming server (127.0.0.1:4477) ──▶ dashboard, menu bar, Dock
-     └─ agent runs ─▶ whamming update ─┘        state: ~/.whamming/state.json
+Claude Code ──hooks──▶ whamming hook ───┐
+pi ──extension (in-process) ────────────┤
+     │                                  ├──▶ Whamming server (127.0.0.1:4477) ──▶ dashboard, menu bar, Dock
+     └─ agent runs ─▶ whamming update ──┘        state: ~/.whamming/state.json
 ```
 
 - **Identity.** The CLI walks up its process tree to the Claude Code process and reads that session's file
   for its name (the one set with `/rename`, or Claude's generated name) and its process ID. Sessions are keyed
   by name; the process ID tells two sessions with the same name apart, which the dashboard flags as a
   *name clash*. A `/rename` moves the entry to the new name.
+  In pi, the extension registers the session (its `/name`, or the folder name plus a short id) with pi's
+  process ID, and the CLI finds it through `PI_SESSION_ID`, which pi sets for every shell command.
 - **Status.** Hooks: a prompt → *working* (plus a provisional title from the prompt until the agent sets one);
   a permission prompt → *waiting*; the next tool call → *working*; the end of a turn → *idle*. Hooks never
   override a status the agent set itself (*waiting* with a question, *error*, *done*).
+- **pi** maps onto the same statuses: a prompt → *working*; an extension dialog (confirm, select, input) →
+  *waiting*; the run settling → *idle*; `/new`, `/resume`, `/fork` or quitting → *Exited*. pi has no
+  permission prompts or subagents of its own, so those parts don't apply.
 - **Exits.** Every 2 seconds the server checks each session's process and Claude's session file. Ended
   sessions move to *Exited*, release their port claims, and are kept for 3 days so a resume can merge into them.
 - **Subagents** run inside their parent's process, so they can't be told apart automatically. They report
@@ -126,8 +137,8 @@ accept requests from the dashboard.
 
 | Method | Path | |
 |---|---|---|
-| `PUT`/`PATCH` | `/api/sessions/:id` | Create or update. `folder` (required on create), `status`, `title`, `detail`, `branch`, `name`, `agent`, `pid`, `claudeSessionId`, `links[]`, `note`, `replaceLinks` |
-| `GET` | `/api/sessions?folder=&status=` | List |
+| `PUT`/`PATCH` | `/api/sessions/:id` | Create or update. `folder` (required on create), `status`, `title`, `detail`, `branch`, `name`, `agent`, `pid`, `conversationId`, `links[]`, `note`, `replaceLinks` |
+| `GET` | `/api/sessions?folder=&status=&conversation=` | List (`conversation`: the agent's own session id) |
 | `GET` | `/api/sessions/:id` | One session, with its activity log |
 | `DELETE` | `/api/sessions/:id` | Remove |
 | `DELETE` | `/api/sessions?olderThanHours=` | Prune finished (and old) sessions |
@@ -145,6 +156,7 @@ accept requests from the dashboard.
 | `DELETE` | `/api/ports/:port?session=&pid=` | Release a claim |
 | `DELETE` | `/api/ports?session=&pid=` | Release all of a session's claims |
 | `POST` | `/api/hooks/claude` | A Claude Code hook event, forwarded by `whamming hook` |
+| `POST` | `/api/hooks/pi` | A pi lifecycle event, sent by the pi extension |
 | `GET` | `/api/stream` | Server-sent events on every change |
 | `GET` | `/api/health` | `{ok, app, version, pid, home}` |
 | `GET` | `/api/info` | `{cliPath}` |
@@ -152,6 +164,7 @@ accept requests from the dashboard.
 | `POST` | `/api/setup/cli` | Install the CLI link (dashboard only) |
 | `GET` | `/api/setup/hooks/preview` | The hook entries that would be added |
 | `POST`/`DELETE` | `/api/setup/hooks` | Install or remove the hooks (dashboard only; backs up first) |
+| `POST`/`DELETE` | `/api/setup/pi` | Link or unlink the pi extension (dashboard only) |
 
 ## Development
 
@@ -176,7 +189,8 @@ WHAMMING_HOME=/tmp/wh-dev WHAMMING_USER_DATA=/tmp/wh-dev/profile WHAMMING_PORT=4
 | `src/main/` | Electron shell: window, menu bar popover, Dock, notifications |
 | `src/renderer/` | Dashboard and popover (TypeScript, no framework) |
 | `cli/` | The `whamming` CLI (Go, no dependencies), bundled into the app |
-| `docs/agent-instructions.md` | The snippet shown in *Agent setup* |
+| `src/pi/` | The pi extension, bundled into the app as `whamming-pi.js` |
+| `docs/agent-instructions.md` | The snippet shown in *Agent setup* (`{{claude}}`/`{{pi}}` mark agent-specific parts) |
 | `assets/` | Icons (SVG sources and rendered files) |
 
 ## License

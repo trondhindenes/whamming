@@ -59,7 +59,7 @@ func runHook() {
 		"name":             name,
 		"nameSource":       s.NameSource,
 		"pid":              s.Pid,
-		"claudeSessionId":  conv,
+		"conversationId":   conv,
 		"cwd":              cwd,
 		"message":          in.Message,
 		"notificationType": in.NotificationType,

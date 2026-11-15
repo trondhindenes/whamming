@@ -1,5 +1,5 @@
 import type { PortsSnapshot, SessionView } from '../shared/types';
-import { ago, chip, esc, fullTime, installTooltips, isExited, statusIcon } from './ui';
+import { agentIcon, ago, chip, esc, fullTime, installTooltips, isExited, statusIcon } from './ui';
 
 interface Bridge {
   openSession(id: string): void;
@@ -38,7 +38,7 @@ async function load() {
 }
 
 function sub(s: SessionView): string {
-  const bits = [`<span title="Folder: ${esc(s.folder)}">${esc(s.folderName)}</span>`];
+  const bits = [`${agentIcon(s.agent)}<span title="Folder: ${esc(s.folder)}">${esc(s.folderName)}</span>`];
   if (s.name !== s.folderName) bits.push(`<span class="mono" title="Session name">${esc(s.id)}</span>`);
   const active = (s.tasks ?? []).filter((t) => t.status !== 'done').length;
   if (active) bits.push(`<span title="Subagents still running">${active} subagent${active === 1 ? '' : 's'}</span>`);

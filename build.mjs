@@ -12,6 +12,8 @@ await Promise.all([
   build({ ...common, entryPoints: ['src/renderer/popover.ts'], outfile: 'dist/renderer/popover.js', platform: 'browser', format: 'iife' }),
   build({ ...common, entryPoints: ['src/server/standalone.ts'], outfile: 'dist/server/standalone.js', platform: 'node', format: 'cjs' }),
   build({ ...common, entryPoints: ['src/renderer/app.ts'], outfile: 'dist/renderer/app.js', platform: 'browser', format: 'iife' }),
+  // The pi extension, shipped next to the CLI (Contents/Resources/whamming-pi.js) and linked into ~/.pi/agent/extensions.
+  build({ ...common, sourcemap: false, entryPoints: ['src/pi/extension.ts'], outfile: 'dist/cli/whamming-pi.js', platform: 'node', format: 'esm', target: 'node20' }),
 ]);
 
 // The Go CLI (bundled into the .app as Contents/Resources/whamming).

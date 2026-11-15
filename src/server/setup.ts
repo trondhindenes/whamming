@@ -198,3 +198,88 @@ export function uninstallHooks(): { status: HooksStatus; backup: string } {
   const backup = writeSettings(next);
   return { status: hooksStatus(), backup };
 }
+
+// ---------- pi ----------
+
+/** pi's config folder (PI_CODING_AGENT_DIR overrides it, as in pi itself). */
+const PI_DIR = process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent');
+/** Global extensions in this folder load in every pi session. */
+export const PI_EXTENSION_LINK = join(PI_DIR, 'extensions', 'whamming.js');
+export const PI_AGENTS_FILE = join(PI_DIR, 'AGENTS.md');
+
+/** The pi extension shipped next to the CLI (Contents/Resources/whamming-pi.js, or dist/cli in dev). */
+export function bundledPiExtension(bundledCli: string | null): string | null {
+  if (!bundledCli) return null;
+  const p = join(dirname(bundledCli), 'whamming-pi.js');
+  return existsSync(p) ? p : null;
+}
+
+export interface PiStatus {
+  /** pi's config folder exists, so pi has been run on this machine. */
+  found: boolean;
+  dir: string;
+  bundled: string | null;
+  link: string;
+  installed: boolean;
+  conflict: string | null;
+  agentsFile: string;
+}
+
+function piLinkTarget(): string | null {
+  try {
+    return lstatSync(PI_EXTENSION_LINK).isSymbolicLink() ? resolve(dirname(PI_EXTENSION_LINK), readlinkSync(PI_EXTENSION_LINK)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function piStatus(bundledCli: string | null): PiStatus {
+  const bundled = bundledPiExtension(bundledCli);
+  const target = piLinkTarget();
+  let conflict: string | null = null;
+  if (target === null && existsSync(PI_EXTENSION_LINK)) conflict = `${PI_EXTENSION_LINK} exists and is not a symlink`;
+  else if (target && bundled && target !== bundled && existsSync(target)) conflict = `${PI_EXTENSION_LINK} points to ${target}`;
+  return {
+    found: existsSync(PI_DIR),
+    dir: PI_DIR,
+    bundled,
+    link: PI_EXTENSION_LINK,
+    installed: !!bundled && target === bundled,
+    conflict,
+    agentsFile: PI_AGENTS_FILE,
+  };
+}
+
+/** Link ~/.pi/agent/extensions/whamming.js → the bundled extension. Never replaces a regular file. */
+export function installPiExtension(bundledCli: string | null): PiStatus {
+  const bundled = bundledPiExtension(bundledCli);
+  if (!bundled) throw new ValidationError('this build of Whamming has no bundled pi extension');
+  if (!existsSync(PI_DIR)) throw new ValidationError(`${PI_DIR} doesn't exist; run pi once first`);
+  const target = piLinkTarget();
+  if (target === null && existsSync(PI_EXTENSION_LINK)) throw new ValidationError(`${PI_EXTENSION_LINK} already exists and is not a symlink; not touching it`);
+  mkdirSync(dirname(PI_EXTENSION_LINK), { recursive: true });
+  if (target !== null) unlinkSync(PI_EXTENSION_LINK);
+  symlinkSync(bundled, PI_EXTENSION_LINK);
+  return piStatus(bundledCli);
+}
+
+/** Remove the link, only if it's ours (points at some whamming-pi.js). */
+export function uninstallPiExtension(bundledCli: string | null): PiStatus {
+  const target = piLinkTarget();
+  if (target === null) {
+    if (existsSync(PI_EXTENSION_LINK)) throw new ValidationError(`${PI_EXTENSION_LINK} is not a link Whamming made; not touching it`);
+  } else if (/whamming-pi\.js$/.test(target)) unlinkSync(PI_EXTENSION_LINK);
+  else throw new ValidationError(`${PI_EXTENSION_LINK} points to ${target}, not to Whamming; not touching it`);
+  return piStatus(bundledCli);
+}
+
+/** On launch: if the extension was linked from an app copy that no longer exists, follow the app. */
+export function refreshPiLink(bundledCli: string | null) {
+  const bundled = bundledPiExtension(bundledCli);
+  const target = piLinkTarget();
+  if (!bundled || target === null || target === bundled) return;
+  if (/whamming-pi\.js$/.test(target) && !existsSync(target)) {
+    unlinkSync(PI_EXTENSION_LINK);
+    symlinkSync(bundled, PI_EXTENSION_LINK);
+  }
+}

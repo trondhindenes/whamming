@@ -15,8 +15,9 @@ var version = "dev"
 
 const usage = `whamming <command> [options]
 
-Identity: the session name and pid come from the Claude Code session this runs under
-(the name set with /rename, or Claude's generated name). --id or WHAMMING_SESSION overrides the name.
+Identity: the session name and pid come from the Claude Code or pi session this runs under
+(Claude: the name set with /rename, or Claude's generated name; pi: the name set with /name, or
+folder-id). --id or WHAMMING_SESSION overrides the name.
 Subagents: pass --task KEY on update/done to report a child row under the parent session.
 
 Commands:
@@ -49,33 +50,33 @@ func fail(format string, a ...any) {
 }
 
 type ctx struct {
-	a      *args
-	id     string
-	claude *claudeSession
-	json   bool
-	task   string // subagent task key (--task / WHAMMING_TASK)
+	a    *args
+	id   string
+	self *agentSession
+	json bool
+	task string // subagent task key (--task / WHAMMING_TASK)
 }
 
 func (c *ctx) needID() string {
 	if c.id == "" {
-		fail("could not determine a session name: not running under Claude Code? Pass --id or set WHAMMING_SESSION")
+		fail("could not determine a session name: not running under Claude Code or pi (with the Whamming extension)? Pass --id or set WHAMMING_SESSION")
 	}
 	return url.PathEscape(c.id)
 }
 
 func (c *ctx) pidQS(prefix string) string {
-	if c.claude == nil {
+	if c.self == nil {
 		return ""
 	}
-	return prefix + "pid=" + strconv.Itoa(c.claude.Pid)
+	return prefix + "pid=" + strconv.Itoa(c.self.Pid)
 }
 
-// identity adds pid / claude session fields to a request body.
+// identity adds the agent session's pid / conversation fields to a request body.
 func (c *ctx) identity(body map[string]any) {
-	if c.claude != nil {
-		body["pid"] = c.claude.Pid
-		body["claudeSessionId"] = c.claude.SessionID
-		body["nameSource"] = c.claude.NameSource
+	if c.self != nil {
+		body["pid"] = c.self.Pid
+		body["conversationId"] = c.self.SessionID
+		body["nameSource"] = c.self.NameSource
 	}
 }
 
@@ -133,13 +134,13 @@ func main() {
 		}
 		return
 	}
-	c := &ctx{a: a, json: a.bools["json"], claude: findClaudeSession()}
+	c := &ctx{a: a, json: a.bools["json"], self: findSession()}
 	c.id = os.Getenv("WHAMMING_SESSION")
 	if v, ok := a.get("id"); ok {
 		c.id = v
 	}
-	if c.id == "" && c.claude != nil {
-		c.id = c.claude.Name
+	if c.id == "" && c.self != nil {
+		c.id = c.self.Name
 	}
 	task := os.Getenv("WHAMMING_TASK")
 	if v, ok := a.get("task"); ok {
@@ -166,15 +167,15 @@ func main() {
 			fmt.Sprintf("Whamming %v is running at %s (pid %d, found via %s)", h.Version, s.url, h.Pid, s.source))
 
 	case "whoami":
-		w := map[string]any{"id": c.id, "pid": nil, "nameSource": nil, "claudeSessionId": nil}
+		w := map[string]any{"id": c.id, "pid": nil, "nameSource": nil, "conversationId": nil}
 		human := "unknown: pass --id or set WHAMMING_SESSION"
-		if c.claude != nil {
-			w["pid"], w["nameSource"], w["claudeSessionId"] = c.claude.Pid, c.claude.NameSource, c.claude.SessionID
+		if c.self != nil {
+			w["pid"], w["nameSource"], w["conversationId"] = c.self.Pid, c.self.NameSource, c.self.SessionID
 		}
 		if c.id != "" {
 			human = c.id
-			if c.claude != nil {
-				human += fmt.Sprintf("  (pid %d, name %s)", c.claude.Pid, c.claude.NameSource)
+			if c.self != nil {
+				human += fmt.Sprintf("  (%s, pid %d, name %s)", c.self.Agent, c.self.Pid, c.self.NameSource)
 			}
 		}
 		c.print(w, human)
@@ -211,8 +212,8 @@ func main() {
 				body[k] = v
 			}
 		}
-		if _, ok := body["agent"]; !ok && c.claude != nil {
-			body["agent"] = "claude-code"
+		if _, ok := body["agent"]; !ok && c.self != nil {
+			body["agent"] = c.self.Agent
 		}
 		var r struct {
 			Session map[string]any `json:"session"`
@@ -229,8 +230,8 @@ func main() {
 		if c.id != "" {
 			q.Set("exclude", c.id)
 		}
-		if c.claude != nil {
-			q.Set("excludePid", strconv.Itoa(c.claude.Pid))
+		if c.self != nil {
+			q.Set("excludePid", strconv.Itoa(c.self.Pid))
 		}
 		var r struct {
 			Peers []struct {
@@ -295,8 +296,8 @@ func main() {
 			return
 		}
 		body := map[string]any{"status": "done"}
-		if c.claude != nil {
-			body["pid"] = c.claude.Pid
+		if c.self != nil {
+			body["pid"] = c.self.Pid
 		}
 		c.do("PATCH", "/api/sessions/"+id, body, nil)
 		fmt.Println(c.id + ": done")

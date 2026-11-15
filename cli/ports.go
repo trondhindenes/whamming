@@ -81,8 +81,8 @@ func waitForPort(c *ctx, body map[string]any, port int, wait time.Duration) {
 
 func (c *ctx) meQuery() string {
 	q := url.Values{"session": {c.id}}
-	if c.claude != nil {
-		q.Set("pid", strconv.Itoa(c.claude.Pid))
+	if c.self != nil {
+		q.Set("pid", strconv.Itoa(c.self.Pid))
 	}
 	if c.task != "" {
 		q.Set("task", c.task) // a subagent's claims are its own, not the whole session's
@@ -104,8 +104,8 @@ func runPort(c *ctx, rest []string) {
 			body["task"] = c.task
 		}
 		c.identity(body)
-		if c.claude != nil {
-			body["agent"] = "claude-code"
+		if c.self != nil {
+			body["agent"] = c.self.Agent
 		}
 		if p := c.a.str("purpose"); p != "" {
 			body["purpose"] = p

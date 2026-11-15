@@ -42,7 +42,7 @@ export interface SessionPatch {
   branch?: string;
   agent?: string;
   pid?: number;
-  claudeSessionId?: string;
+  conversationId?: string;
   nameSource?: string;
   status?: SessionStatus;
   title?: string;
@@ -58,13 +58,31 @@ export interface SessionPatch {
   quiet?: boolean;
 }
 
-/** A Claude Code hook event, as forwarded by `whamming hook`. */
+/** Turn a display name (which may contain spaces) into a session id. The CLI's slug() does the same. */
+export function sessionSlug(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/[^\w.:-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 128) || 'session'
+  );
+}
+
+/** Agents that report through hooks (Claude Code via `whamming hook`, pi via its extension). */
+export const HOOK_AGENTS = { claude: 'claude-code', pi: 'pi' } as const;
+
+/**
+ * A lifecycle event from an agent harness. Claude Code hook names are used for every agent:
+ * SessionStart, UserPromptSubmit, Notification, PostToolUse, Stop, plus SessionEnd.
+ */
 export interface HookEvent {
+  agent?: string;
   event: string;
   name: string;
   nameSource?: string;
   pid: number;
-  claudeSessionId: string;
+  conversationId: string;
   cwd: string;
   branch?: string;
   prompt?: string;
@@ -235,7 +253,13 @@ export class Store extends EventEmitter {
     if (!existsSync(this.file)) return;
     try {
       const state = JSON.parse(readFileSync(this.file, 'utf8')) as PersistedState;
-      for (const s of state.sessions ?? []) this.sessions.set(s.id, s);
+      for (const s of state.sessions ?? []) {
+        // Renamed from claudeSessionId when pi support arrived.
+        const legacy = (s as any).claudeSessionId;
+        if (legacy && !s.conversationId) s.conversationId = legacy;
+        delete (s as any).claudeSessionId;
+        this.sessions.set(s.id, s);
+      }
       for (const [id, msgs] of Object.entries(state.inbox ?? {})) this.inbox.set(id, msgs);
       for (const l of state.leases ?? []) this.leases.set(l.port, l);
     } catch (err) {
@@ -298,21 +322,21 @@ export class Store extends EventEmitter {
   }
 
   /** The session currently owned by this process, if any. */
-  findByPid(pid: number, claudeSessionId?: string): Session | undefined {
+  findByPid(pid: number, conversationId?: string): Session | undefined {
     for (const s of this.sessions.values()) {
       if (s.pid !== pid) continue;
       // Same PID but a different Claude session: the OS reused the PID.
-      if (claudeSessionId && s.claudeSessionId && s.claudeSessionId !== claudeSessionId) continue;
+      if (conversationId && s.conversationId && s.conversationId !== conversationId) continue;
       return s;
     }
     return undefined;
   }
 
   /** An entry from the same Claude conversation whose process has exited: it was resumed (`claude -r`). */
-  private findResumed(claudeSessionId?: string, exceptId?: string): Session | undefined {
-    if (!claudeSessionId) return undefined;
+  private findResumed(conversationId?: string, exceptId?: string): Session | undefined {
+    if (!conversationId) return undefined;
     for (const s of this.sessions.values()) {
-      if (s.id !== exceptId && s.claudeSessionId === claudeSessionId && (s.endedAt || s.pid === undefined || !isAlive(s.pid))) return s;
+      if (s.id !== exceptId && s.conversationId === conversationId && (s.endedAt || s.pid === undefined || !isAlive(s.pid))) return s;
     }
     return undefined;
   }
@@ -338,10 +362,10 @@ export class Store extends EventEmitter {
   }
 
   /** Can a process with `pid` claim the name currently held by `holder`? */
-  private canClaim(holder: Session | undefined, pid: number | undefined, claudeSessionId?: string): boolean {
+  private canClaim(holder: Session | undefined, pid: number | undefined, conversationId?: string): boolean {
     if (!holder || pid === undefined) return true;
     if (holder.pid === undefined || holder.pid === pid) return true;
-    if (claudeSessionId && holder.claudeSessionId === claudeSessionId) return true; // resumed in a new process
+    if (conversationId && holder.conversationId === conversationId) return true; // resumed in a new process
     return !isAlive(holder.pid) || holder.status === 'done';
   }
 
@@ -363,14 +387,14 @@ export class Store extends EventEmitter {
     }
 
     const now = new Date().toISOString();
-    const { pid, claudeSessionId } = patch;
+    const { pid, conversationId } = patch;
     const events: ActivityEvent[] = [];
     let warning: string | undefined;
 
     // Identity: the name (requestedId) is the key, the pid tells processes apart.
     const holder = this.sessions.get(requestedId);
     // Same process, or the same conversation resumed in a new process (possibly under a new name).
-    const mine = pid !== undefined ? (this.findByPid(pid, claudeSessionId) ?? this.findResumed(claudeSessionId)) : undefined;
+    const mine = pid !== undefined ? (this.findByPid(pid, conversationId) ?? this.findResumed(conversationId)) : undefined;
     const resumedFrom = mine && pid !== undefined && mine.pid !== undefined && mine.pid !== pid ? mine.pid : undefined;
     let id = requestedId;
     let existing: Session | undefined;
@@ -380,7 +404,7 @@ export class Store extends EventEmitter {
       if (resumedFrom) events.push({ at: now, message: `Resumed in pid ${pid} (was ${resumedFrom})` });
     } else if (mine) {
       // This process already has an entry under another id: it was renamed (or was parked on name@pid).
-      if (this.canClaim(holder, pid, claudeSessionId)) {
+      if (this.canClaim(holder, pid, conversationId)) {
         if (holder) this.remove(holder.id);
         events.push({ at: now, message: resumedFrom ? `Resumed in pid ${pid} (was ${mine.id}, pid ${resumedFrom})` : `Renamed from ${mine.id}` });
         this.rekey(mine, requestedId);
@@ -389,8 +413,8 @@ export class Store extends EventEmitter {
         existing = mine;
         id = mine.id;
       }
-    } else if (this.canClaim(holder, pid, claudeSessionId)) {
-      const differentSession = !!(holder && claudeSessionId && holder.claudeSessionId && holder.claudeSessionId !== claudeSessionId);
+    } else if (this.canClaim(holder, pid, conversationId)) {
+      const differentSession = !!(holder && conversationId && holder.conversationId && holder.conversationId !== conversationId);
       if (holder && differentSession) {
         this.remove(holder.id); // a new session reusing a dead session's name starts fresh
       } else {
@@ -423,7 +447,7 @@ export class Store extends EventEmitter {
     const previousStatus = existing?.status;
     if (!patch.name) s.name = requestedId;
     if (pid !== undefined) s.pid = pid;
-    if (claudeSessionId) s.claudeSessionId = claudeSessionId;
+    if (conversationId) s.conversationId = conversationId;
     if (s.endedAt && (s.pid === undefined || isAlive(s.pid))) delete s.endedAt; // reporting again: it's back
     if (patch.nameSource) s.nameSource = patch.nameSource;
 
@@ -475,7 +499,7 @@ export class Store extends EventEmitter {
     s.activity = [...s.activity, ...events].slice(-MAX_ACTIVITY);
     this.sessions.set(id, s);
     // Clean up duplicates a resume left behind before this fix (or in a race).
-    for (let dup = this.findResumed(s.claudeSessionId, s.id); dup; dup = this.findResumed(s.claudeSessionId, s.id)) {
+    for (let dup = this.findResumed(s.conversationId, s.id); dup; dup = this.findResumed(s.conversationId, s.id)) {
       this.mergeInto(s, dup);
       s.activity = [...s.activity, { at: now, message: `Merged earlier entry ${dup.id} (same conversation)` }].slice(-MAX_ACTIVITY);
     }
@@ -556,14 +580,19 @@ export class Store extends EventEmitter {
    * error, done) except to clear a "waiting" that a permission prompt caused.
    */
   applyHook(h: HookEvent): Session | undefined {
-    if (!h.pid || !h.claudeSessionId || !h.cwd || !h.name) throw new ValidationError('hook event needs pid, claudeSessionId, cwd and name');
-    const cur = this.findByPid(h.pid, h.claudeSessionId);
+    if (!h.pid || !h.conversationId || !h.cwd || !h.name) throw new ValidationError('hook event needs pid, conversationId, cwd and name');
+    h = { ...h, name: sessionSlug(h.name) }; // "/name Fix the login bug" → "Fix-the-login-bug"
+    const cur = this.findByPid(h.pid, h.conversationId);
+    if (h.event === 'SessionEnd') {
+      if (cur && !cur.endedAt) this.end(cur, h.message || 'Session ended');
+      return cur;
+    }
     const base: SessionPatch = {
       folder: h.cwd,
       pid: h.pid,
-      claudeSessionId: h.claudeSessionId,
+      conversationId: h.conversationId,
       nameSource: h.nameSource,
-      agent: 'claude-code',
+      agent: h.agent ?? 'claude-code',
       statusSource: 'hook',
       quiet: true,
       ...(h.branch && { branch: h.branch }),
@@ -629,24 +658,30 @@ export class Store extends EventEmitter {
       if (s.pid === undefined) continue;
       let why: string | undefined;
       if (!isAlive(s.pid)) why = 'Process exited';
-      else if (s.claudeSessionId) {
+      else if (s.conversationId && (s.agent ?? 'claude-code') === 'claude-code') {
         const current = claudeConversationOf(s.pid);
-        if (current && current !== s.claudeSessionId) why = 'Conversation replaced in the same process (/clear or /resume)';
+        if (current && current !== s.conversationId) why = 'Conversation replaced in the same process (/clear or /resume)';
       }
       if (!why) continue;
-      const at = new Date(now).toISOString();
-      s.endedAt = at;
-      const freed = this.leasesOf(s.id).map((l) => l.port);
-      for (const p of freed) this.leases.delete(p);
-      s.activity = [
-        ...s.activity,
-        { at, message: why },
-        ...(freed.length ? [{ at, message: `Released ${freed.map((p) => `:${p}`).join(' ')}` }] : []),
-      ].slice(-MAX_ACTIVITY);
-      this.changed('ended', s.id);
+      this.end(s, why, now);
       ended.push(s.id);
     }
     return { ended, pruned };
+  }
+
+  /** Mark a session as ended (moves it to Exited) and free its ports. */
+  private end(s: Session, why: string, now = Date.now()) {
+    const at = new Date(now).toISOString();
+    s.endedAt = at;
+    const freed = this.leasesOf(s.id).map((l) => l.port);
+    for (const p of freed) this.leases.delete(p);
+    s.activity = [
+      ...s.activity,
+      { at, message: why },
+      ...(freed.length ? [{ at, message: `Released ${freed.map((p) => `:${p}`).join(' ')}` }] : []),
+    ].slice(-MAX_ACTIVITY);
+    this.changed('ended', s.id);
+    if (freed.length && this.queues.size) void this.pumpQueues();
   }
 
   /** Run reap() on an interval. Returns a stop function. */

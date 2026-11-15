@@ -161,3 +161,26 @@ export function installTooltips() {
     toast((await copyText(a.href)) ? 'Link copied' : 'Could not copy link');
   });
 }
+
+const AGENT_LABEL: Record<string, string> = { 'claude-code': 'Claude Code', pi: 'pi' };
+
+export function agentLabel(agent?: string): string {
+  return agent ? (AGENT_LABEL[agent] ?? agent) : '';
+}
+
+/** A small mark for the agent harness a session runs in (our own simple glyphs, not the products' logos). */
+export function agentIcon(agent?: string): string {
+  if (!agent) return '';
+  const tip = `data-tip="${esc(`Agent: ${agentLabel(agent)}`)}"`;
+  if (agent === 'claude-code') {
+    // a spark: eight rays
+    const rays = [0, 45, 90, 135]
+      .map((a) => `<path d="M6 1.2v9.6" transform="rotate(${a} 6 6)"/>`)
+      .join('');
+    return `<svg class="agent-icon claude" ${tip} viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${rays}</svg>`;
+  }
+  if (agent === 'pi') {
+    return `<svg class="agent-icon pi" ${tip} viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1.8 3.2h8.4M4.4 3.2v6.6M7.7 3.2v5.4c0 .9.5 1.3 1.4 1.1"/></svg>`;
+  }
+  return `<svg class="agent-icon other" ${tip} viewBox="0 0 12 12"><circle cx="6" cy="6" r="2.5" fill="currentColor"/></svg>`;
+}

@@ -51,7 +51,7 @@ export interface Session {
   /** PID of the agent process; distinguishes two sessions claiming the same name. */
   pid?: number;
   /** Claude Code's own session UUID, if known. Guards against PID reuse. */
-  claudeSessionId?: string;
+  conversationId?: string;
   /** Where the name came from, e.g. "user" (/rename) or "derived". */
   nameSource?: string;
   status: SessionStatus;

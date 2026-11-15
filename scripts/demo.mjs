@@ -16,7 +16,7 @@ await put('web-a11y', { folder: `${P}/storefront-web`, branch: 'eng-398-a11y-nav
   title: 'Keyboard navigation for mega menu', links: [{ url: 'https://linear.app/acme/issue/ENG-398/a11y-nav' }, { url: 'https://github.com/acme/storefront-web/pull/1204' }] });
 await put('web-deps', { folder: `${P}/storefront-web`, branch: 'chore/deps', agent: 'claude-code', status: 'idle',
   title: 'Bump React Router to v8', links: [{ url: 'https://github.com/acme/storefront-web/pull/1199' }] });
-await put('infra-dns', { folder: `${P}/infra`, branch: 'main', agent: 'claude-code', status: 'error',
+await put('infra-dns', { folder: `${P}/infra`, branch: 'main', agent: 'pi', status: 'error',
   title: 'Migrate DNS zone to new provider', detail: 'pulumi up failed: zone already exists in target account. Needs manual cleanup.' });
 await put('docs-adr', { folder: `${P}/infra/docs`, agent: 'claude-code', status: 'done', title: 'Write ADR for secrets rotation',
   links: [{ url: 'https://github.com/acme/infra/pull/77' }] });
