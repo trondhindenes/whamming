@@ -288,9 +288,19 @@ export class Store extends EventEmitter {
     renameSync(tmp, this.file);
   }
 
+  /**
+   * The status to show. A session that ended its turn (idle) while subagents are still working is
+   * itself still working: the Stop hook fires when the main agent stops, not when its subagents do.
+   * Statuses the agent chose itself (waiting, blocked, error, done) are left alone.
+   */
+  statusOf(s: Session): SessionStatus {
+    return s.status === 'idle' && s.tasks?.some((t) => t.status === 'working') ? 'working' : s.status;
+  }
+
   view(s: Session, withActivity = false): SessionView {
     const { activity, ...rest } = s;
-    const stale = s.status === 'working' && Date.now() - Date.parse(s.updatedAt) > STALE_AFTER_MS;
+    const status = this.statusOf(s);
+    const stale = status === 'working' && Date.now() - Date.parse(s.updatedAt) > STALE_AFTER_MS;
     const unread = (this.inbox.get(s.id) ?? []).filter((m) => !m.read).length;
     const alive = s.endedAt ? false : s.pid !== undefined ? isAlive(s.pid) : undefined;
     const conflicts =
@@ -300,7 +310,7 @@ export class Store extends EventEmitter {
             .filter((o) => o.id !== s.id && o.name === s.name && o.status !== 'done' && (o.pid === undefined || isAlive(o.pid)))
             .map((o) => o.id);
     const ports = this.leasesOf(s.id).map((l) => l.port);
-    const base = { ...rest, stale: stale && alive !== false, alive, conflicts, unread, ports };
+    const base = { ...rest, status, stale: stale && alive !== false, alive, conflicts, unread, ports };
     return withActivity ? { ...base, activity } : base;
   }
 
@@ -312,7 +322,7 @@ export class Store extends EventEmitter {
     }
     if (filter.status) {
       const wanted = new Set(filter.status.split(','));
-      all = all.filter((s) => wanted.has(s.status));
+      all = all.filter((s) => wanted.has(this.statusOf(s)));
     }
     return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((s) => this.view(s));
   }
@@ -560,7 +570,7 @@ export class Store extends EventEmitter {
       if (s.pid !== undefined && !isAlive(s.pid)) continue; // can't coordinate with an exited process
       const rel = relation(f, s.folder);
       if (!rel) continue;
-      out.push({ id: s.id, name: s.name, folder: s.folder, status: s.status, title: s.title, branch: s.branch, pid: s.pid, relation: rel });
+      out.push({ id: s.id, name: s.name, folder: s.folder, status: this.statusOf(s), title: s.title, branch: s.branch, pid: s.pid, relation: rel });
     }
     return out;
   }

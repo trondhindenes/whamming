@@ -93,6 +93,7 @@ pi ──extension (in-process) ────────────┤
 - **Status.** Hooks: a prompt → *working* (plus a provisional title from the prompt until the agent sets one);
   a permission prompt → *waiting*; the next tool call → *working*; the end of a turn → *idle*. Hooks never
   override a status the agent set itself (*waiting* with a question, *error*, *done*).
+  An *idle* session with a subagent that is still *working* shows as *working* until the subagent finishes.
 - **pi** maps onto the same statuses: a prompt → *working*; an extension dialog (confirm, select, input) →
   *waiting*; the run settling → *idle*; `/new`, `/resume`, `/fork` or quitting → *Exited*. pi has no
   permission prompts or subagents of its own, so those parts don't apply.
