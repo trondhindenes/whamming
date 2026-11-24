@@ -535,6 +535,7 @@ function renderDetail() {
   const activity = [...(d.activity ?? [])].reverse().slice(0, 40);
 
   el.innerHTML = `
+    <div class="detail-resize" title="Drag to resize, double-click to reset"></div>
     <div class="detail-head">
       ${statusIcon(d.status)}
       <div class="crumb">${esc(d.folderName)} › <b>${esc(d.name)}</b></div>
@@ -995,6 +996,53 @@ $<HTMLInputElement>('search').addEventListener('input', (e) => {
   state.query = (e.target as HTMLInputElement).value;
   renderList();
 });
+// ---------- detail panel resizing ----------
+
+const DETAIL_MIN = 320;
+function clampDetailWidth(w: number): number {
+  // Leave room for the session list (and the sidebar when it's visible).
+  const max = Math.max(DETAIL_MIN, window.innerWidth - (window.innerWidth > 860 ? 228 + 360 : 40));
+  return Math.round(Math.min(max, Math.max(DETAIL_MIN, w)));
+}
+function applyDetailWidth(w: number | null) {
+  const root = $('app');
+  if (w == null) root.style.removeProperty('--detail-w');
+  else root.style.setProperty('--detail-w', `${clampDetailWidth(w)}px`);
+}
+applyDetailWidth(Number(localStorage.getItem('detailWidth')) || null);
+window.addEventListener('resize', () => {
+  const saved = Number(localStorage.getItem('detailWidth'));
+  if (saved) applyDetailWidth(saved);
+});
+
+document.addEventListener('pointerdown', (e) => {
+  const handle = (e.target as HTMLElement).closest<HTMLElement>('.detail-resize');
+  if (!handle || e.button !== 0) return;
+  e.preventDefault();
+  const startX = e.clientX;
+  const startW = $('detail').getBoundingClientRect().width;
+  handle.classList.add('active');
+  document.body.classList.add('resizing');
+  const onMove = (ev: PointerEvent) => applyDetailWidth(startW + (startX - ev.clientX));
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    document.querySelector('.detail-resize')?.classList.remove('active');
+    document.body.classList.remove('resizing');
+    localStorage.setItem('detailWidth', String(Math.round($('detail').getBoundingClientRect().width)));
+  };
+  // On window, not the handle: live updates re-render the panel (and the handle) mid-drag.
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+});
+document.addEventListener('dblclick', (e) => {
+  if (!(e.target as HTMLElement).closest('.detail-resize')) return;
+  localStorage.removeItem('detailWidth');
+  applyDetailWidth(null);
+});
+
 $('setup-btn').addEventListener('click', openSetup);
 $('modal-close').addEventListener('click', closeSetup);
 $('modal').addEventListener('click', (e) => {
